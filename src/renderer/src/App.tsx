@@ -1,66 +1,91 @@
 // src/renderer/src/App.tsx
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  AppProvider as AppContextProvider,
-  useAppContext,
+  AppProvider,
+  useApp,
+  TriggerOverlayOptions,
 } from './context/AppContext';
 import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad } from './components/scratchpad/Scratchpad';
+import { OverlayKind } from './types/buddy';
 import type {
   OverlayTriggerType,
   OverlayTriggerPayload,
 } from '../../preload/index.d';
 
-const isDevelopment = process.env.NODE_ENV === 'development';
-
-const StudyBuddyShell: React.FC = () => {
+const StudyBuddyViewport: React.FC = () => {
   const {
     activeOverlay,
     triggerOverlay,
     dismissActiveOverlay,
     isScratchpadOpen,
     setScratchpadOpen,
-  } = useAppContext();
+    scratchpad,
+    toggleSyncStatus,
+    setInteractiveRegionHovered,
+    syncWindowClickThrough,
+  } = useApp();
 
-  // Track whether the window is currently ignoring mouse events so we avoid
-  // flooding the IPC channel on every single pixel of mouse movement.
-  const isIgnoringMouseRef = useRef<boolean>(true);
-
-  const setClickThrough = useCallback((ignore: boolean) => {
-    if (isIgnoringMouseRef.current === ignore) return;
-    isIgnoringMouseRef.current = ignore;
-
-    if (ignore) {
-      window.electronAPI?.setIgnoreMouseEvents(true, true);
-    } else {
-      window.electronAPI?.setIgnoreMouseEvents(false);
-    }
-  }, []);
+  const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
 
   /**
-   * 1. Initialize window in click-through mode with forwarding enabled
-   *    and subscribe to Main Process `onTriggerOverlay` events.
+   * Registers hover state for an interactive UI surface and synchronizes
+   * the Electron window's OS-level click-through state.
+   */
+  const handleInteractiveRegionHover = useCallback(
+    (regionId: string, isHovered: boolean) => {
+      setInteractiveRegionHovered(regionId, isHovered);
+      syncWindowClickThrough();
+    },
+    [setInteractiveRegionHovered, syncWindowClickThrough]
+  );
+
+  /**
+   * Helper to immediately display a specific overlay state when testing from the Dev Bar
+   * or responding to a Main Process IPC trigger, even if another overlay is currently open.
+   */
+  const activateOverlayImmediately = useCallback(
+    (kind: OverlayKind, options?: TriggerOverlayOptions) => {
+      if (activeOverlay !== null) {
+        dismissActiveOverlay();
+        window.setTimeout(() => {
+          triggerOverlay(kind, options);
+        }, 0);
+      } else {
+        triggerOverlay(kind, options);
+      }
+    },
+    [activeOverlay, dismissActiveOverlay, triggerOverlay]
+  );
+
+  /**
+   * Initialize the Electron window in click-through mode (`forward: true`)
+   * and subscribe to scheduled overlay triggers from the main process.
    */
   useEffect(() => {
-    window.electronAPI?.setIgnoreMouseEvents(true, true);
-    isIgnoringMouseRef.current = true;
+    syncWindowClickThrough();
 
-    if (!window.electronAPI?.onTriggerOverlay) return;
+    if (!window.electronAPI?.onTriggerOverlay) {
+      return;
+    }
 
     const unsubscribe = window.electronAPI.onTriggerOverlay(
       (type: OverlayTriggerType, payload?: OverlayTriggerPayload) => {
         if (type === 'hydration') {
-          triggerOverlay('overlay_hydration', {
-            durationSeconds: payload?.durationSeconds ?? 300, // 05:00
+          activateOverlayImmediately('overlay_hydration', {
+            durationSeconds: payload?.durationSeconds ?? 300,
+            message: payload?.message,
           });
         } else if (type === 'bathroom') {
-          triggerOverlay('overlay_bathroom', {
-            durationSeconds: payload?.durationSeconds ?? 600, // 10:00
+          activateOverlayImmediately('overlay_bathroom', {
+            durationSeconds: payload?.durationSeconds ?? 600,
+            message: payload?.message,
           });
         } else if (type === 'intervention') {
-          triggerOverlay('overlay_intervention', {
-            targetAppOrSite: payload?.targetAppOrSite ?? 'Discord',
+          activateOverlayImmediately('overlay_intervention', {
+            targetAppOrSite: payload?.targetAppOrSite ?? 'YouTube / Reddit',
             strictMode: payload?.strictMode ?? false,
+            message: payload?.message,
           });
         }
       }
@@ -69,162 +94,180 @@ const StudyBuddyShell: React.FC = () => {
     return () => {
       unsubscribe();
     };
-  }, [triggerOverlay]);
-
-  /**
-   * 2. Global Mouse Move Delegation
-   * Ensures that whenever the cursor moves out to the transparent canvas or
-   * the dimmed overlay backdrop (`rgba(0, 0, 0, 0.45)`), click-through is enabled
-   * with `{ forward: true }`. Whenever the cursor enters any `[data-interactive="true"]`
-   * surface (Scratchpad, CenterOverlay modal card, Dev Trigger Bar), click-through
-   * is disabled (`setIgnoreMouseEvents(false)`).
-   */
-  const handleWorkspaceMouseMove = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement | null;
-      const isInsideInteractiveRegion = Boolean(
-        target?.closest('[data-interactive="true"]')
-      );
-
-      if (isInsideInteractiveRegion) {
-        setClickThrough(false);
-      } else {
-        setClickThrough(true);
-      }
-    },
-    [setClickThrough]
-  );
-
-  const handleInteractiveMouseEnter = useCallback(() => {
-    setClickThrough(false);
-  }, [setClickThrough]);
-
-  const handleInteractiveMouseLeave = useCallback(() => {
-    setClickThrough(true);
-  }, [setClickThrough]);
-
-  /**
-   * Dev Trigger Bar Handlers
-   */
-  const handleTriggerHydration = () => {
-    dismissActiveOverlay();
-    triggerOverlay('overlay_hydration', { durationSeconds: 300 }); // 5:00
-  };
-
-  const handleTriggerBathroom = () => {
-    dismissActiveOverlay();
-    triggerOverlay('overlay_bathroom', { durationSeconds: 600 }); // 10:00
-  };
-
-  const handleTriggerIntervention = () => {
-    dismissActiveOverlay();
-    triggerOverlay('overlay_intervention', {
-      targetAppOrSite: 'Discord',
-    });
-  };
+  }, [syncWindowClickThrough, activateOverlayImmediately]);
 
   return (
-    <div
-      onMouseMove={handleWorkspaceMouseMove}
-      className="relative h-screen w-screen overflow-hidden bg-transparent select-none font-sans"
-    >
-      {/* Floating Scratchpad Container (anchored bottom-right by default) */}
+    <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
+      {/* 1. Floating Movable Scratchpad (Interactive Surface) */}
       <div
-        data-interactive="true"
-        onMouseEnter={handleInteractiveMouseEnter}
-        onMouseLeave={handleInteractiveMouseLeave}
-        className="fixed bottom-16 right-6 z-50"
+        className="pointer-events-auto"
+        onMouseEnter={() =>
+          handleInteractiveRegionHover('scratchpad-shell', true)
+        }
+        onMouseLeave={() =>
+          handleInteractiveRegionHover('scratchpad-shell', false)
+        }
       >
         <Scratchpad />
       </div>
 
-      {/* Conditionally Render Center Screen-Dimming Overlay when Active */}
-      {activeOverlay && activeOverlay.isActive && (
+      {/* 2. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {activeOverlay !== null && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none transition-opacity duration-300"
+          style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
         >
-          {/* Interactive wrapper around the 420px Center Modal Card */}
+          {/*
+            The backdrop remains pointer-events-none so clicks pass through to underlying
+            OS windows, while the 420px CenterOverlay modal card captures pointer events.
+          */}
           <div
-            data-interactive="true"
-            onMouseEnter={handleInteractiveMouseEnter}
-            onMouseLeave={handleInteractiveMouseLeave}
+            className="pointer-events-auto [&>div]:!bg-transparent [&>div]:pointer-events-none [&>div>div]:pointer-events-auto"
+            onMouseEnter={() =>
+              handleInteractiveRegionHover('center-overlay-card', true)
+            }
+            onMouseLeave={() =>
+              handleInteractiveRegionHover('center-overlay-card', false)
+            }
           >
             <CenterOverlay />
           </div>
         </div>
       )}
 
-      {/* Minimal Floating Dev Trigger Bar (Development Mode Only) */}
-      {isDevelopment && (
+      {/* 3. Floating Collapsible Dev Trigger Bar */}
+      <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 pointer-events-none">
         <div
-          data-interactive="true"
-          onMouseEnter={handleInteractiveMouseEnter}
-          onMouseLeave={handleInteractiveMouseLeave}
-          className="fixed bottom-3 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#342D4B] bg-[#161224]/95 px-4 py-2 text-[12px] text-white shadow-[0_12px_32px_rgba(0,0,0,0.65)] backdrop-blur-md"
+          onMouseEnter={() =>
+            handleInteractiveRegionHover('dev-trigger-bar', true)
+          }
+          onMouseLeave={() =>
+            handleInteractiveRegionHover('dev-trigger-bar', false)
+          }
+          className="bg-zinc-900/90 border border-zinc-700 text-white rounded-full px-4 py-2 text-xs flex items-center gap-2 shadow-2xl pointer-events-auto backdrop-blur-md transition-all duration-200"
         >
-          <span className="mr-1 flex items-center gap-1.5 font-semibold text-[#A594F9]">
-            <span className="h-2 w-2 rounded-full bg-[#4ADE80] animate-pulse" />
-            Dev Trigger Bar
-          </span>
-
+          {/* Collapse / Expand Pill Toggle */}
           <button
             type="button"
-            onClick={handleTriggerHydration}
-            className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
-              activeOverlay?.kind === 'overlay_hydration'
-                ? 'bg-[#A594F9] text-[#171329]'
-                : 'bg-[#241E36] text-[#E2DFF0] hover:bg-[#322A4B]'
-            }`}
+            onClick={() => setIsDevBarCollapsed((prev) => !prev)}
+            title={
+              isDevBarCollapsed
+                ? 'Expand Dev Trigger Bar'
+                : 'Collapse Dev Trigger Bar'
+            }
+            className="flex items-center gap-1.5 font-semibold text-violet-300 hover:text-violet-200 transition cursor-pointer pr-1"
           >
-            1. Trigger Hydration (5:00)
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Dev Controls</span>
+            <span className="text-[10px] text-zinc-400">
+              {isDevBarCollapsed ? '▸' : '◂'}
+            </span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleTriggerBathroom}
-            className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
-              activeOverlay?.kind === 'overlay_bathroom'
-                ? 'bg-[#A594F9] text-[#171329]'
-                : 'bg-[#241E36] text-[#E2DFF0] hover:bg-[#322A4B]'
-            }`}
-          >
-            2. Trigger Bathroom (10:00)
-          </button>
+          {!isDevBarCollapsed && (
+            <>
+              <span className="h-3.5 w-[1px] bg-zinc-700" />
 
-          <button
-            type="button"
-            onClick={handleTriggerIntervention}
-            title="Distraction detected"
-            className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
-              activeOverlay?.kind === 'overlay_intervention'
-                ? 'bg-[#A594F9] text-[#171329]'
-                : 'bg-[#241E36] text-[#E2DFF0] hover:bg-[#322A4B]'
-            }`}
-          >
-            3. Trigger Intervention (&ldquo;Distraction detected&rdquo;)
-          </button>
+              {/* Action 1: Trigger Hydration (5:00) */}
+              <button
+                type="button"
+                onClick={() =>
+                  activateOverlayImmediately('overlay_hydration', {
+                    durationSeconds: 300,
+                  })
+                }
+                className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
+                  activeOverlay?.kind === 'overlay_hydration'
+                    ? 'bg-violet-500 text-zinc-950 font-semibold'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100'
+                }`}
+              >
+                Trigger Hydration
+              </button>
 
-          <span className="mx-1 h-3.5 w-[1px] bg-[#342D4B]" />
+              {/* Action 2: Trigger Bathroom (10:00) */}
+              <button
+                type="button"
+                onClick={() =>
+                  activateOverlayImmediately('overlay_bathroom', {
+                    durationSeconds: 600,
+                  })
+                }
+                className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
+                  activeOverlay?.kind === 'overlay_bathroom'
+                    ? 'bg-violet-500 text-zinc-950 font-semibold'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100'
+                }`}
+              >
+                Trigger Bathroom
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setScratchpadOpen(!isScratchpadOpen)}
-            className="rounded-full bg-[#241E36] px-3 py-1 font-medium text-[#A594F9] hover:bg-[#322A4B] transition cursor-pointer"
-          >
-            {isScratchpadOpen ? 'Hide Scratchpad' : 'Show Scratchpad'}
-          </button>
+              {/* Action 3: Trigger Alert ("YouTube / Reddit") */}
+              <button
+                type="button"
+                onClick={() =>
+                  activateOverlayImmediately('overlay_intervention', {
+                    targetAppOrSite: 'YouTube / Reddit',
+                  })
+                }
+                className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
+                  activeOverlay?.kind === 'overlay_intervention'
+                    ? 'bg-violet-500 text-zinc-950 font-semibold'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100'
+                }`}
+              >
+                Trigger Alert
+              </button>
+
+              {/* Action 4: Dismiss Overlay */}
+              <button
+                type="button"
+                onClick={() => {
+                  handleInteractiveRegionHover('center-overlay-card', false);
+                  dismissActiveOverlay();
+                }}
+                disabled={activeOverlay === null}
+                className={`rounded-full px-3 py-1 font-medium transition ${
+                  activeOverlay !== null
+                    ? 'bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 cursor-pointer'
+                    : 'bg-zinc-800/40 text-zinc-500 cursor-not-allowed'
+                }`}
+              >
+                Dismiss Overlay
+              </button>
+
+              <span className="h-3.5 w-[1px] bg-zinc-700" />
+
+              {/* Quick Scratchpad & Sync State Toggles */}
+              <button
+                type="button"
+                onClick={() => setScratchpadOpen(!isScratchpadOpen)}
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-zinc-200 transition cursor-pointer"
+              >
+                {isScratchpadOpen ? 'Hide Notes' : 'Show Notes'}
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleSyncStatus}
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 font-medium text-zinc-300 transition cursor-pointer"
+                title="Toggle Cloud Synced / Offline state"
+              >
+                {scratchpad.syncStatus === 'synced' ? '● Synced' : '● Offline'}
+              </button>
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
 
 export const App: React.FC = () => {
   return (
-    <AppContextProvider>
-      <StudyBuddyShell />
-    </AppContextProvider>
+    <AppProvider>
+      <StudyBuddyViewport />
+    </AppProvider>
   );
 };
 
