@@ -1,56 +1,189 @@
 // src/renderer/src/components/scratchpad/Scratchpad.tsx
-import React, { useState, useRef, useMemo } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import React, {
+  useState,
+  useRef,
+  useMemo,
+  useEffect,
+  useCallback,
+} from 'react';
+import { useApp, SCRATCHPAD_STORAGE_KEY } from '../../context/AppContext';
 
 export const Scratchpad: React.FC = () => {
   const {
     scratchpad,
+    updateScratchpadTitle,
     updateScratchpadContent,
     clearScratchpadContent,
     isScratchpadOpen,
     isScratchpadMinimized,
     setScratchpadOpen,
     setScratchpadMinimized,
-    exportScratchpadToMarkdown,
     openNoteIntoScratchpad,
     setInteractiveRegionHovered,
-  } = useAppContext();
+  } = useApp();
 
-  // Support both native OS dragging (-webkit-app-region: drag) and
-  // in-viewport floating card dragging so the user can reposition the 400x520
-  // scratchpad freely inside the full-screen transparent overlay canvas.
+  // Local editor buffers hydrated from context / localStorage('study_buddy_scratchpad')
+  const [title, setTitle] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.title === 'string') return parsed.title;
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return scratchpad.title;
+  });
+
+  const [content, setContent] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.content === 'string') return parsed.content;
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return scratchpad.content;
+  });
+
+  // Floating window position coordinates
   const [position, setPosition] = useState<{ x: number; y: number }>({
     x: 48,
     y: 64,
   });
+
   const dragOffsetRef = useRef<{ startX: number; startY: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Debounced persistence of title and content to localStorage key 'study_buddy_scratchpad'
+  useEffect(() => {
+    const debounceTimer = window.setTimeout(() => {
+      try {
+        const payload = {
+          ...scratchpad,
+          title,
+          content,
+          updatedAt: Date.now(),
+        };
+        localStorage.setItem(SCRATCHPAD_STORAGE_KEY, JSON.stringify(payload));
+      } catch (err) {
+        console.warn('Failed to persist scratchpad note to localStorage:', err);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(debounceTimer);
+  }, [title, content, scratchpad]);
+
+  // Handle Title & Content Updates
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextTitle = e.target.value;
+    setTitle(nextTitle);
+    updateScratchpadTitle(nextTitle);
+  };
+
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const nextContent = e.target.value;
+    setContent(nextContent);
+    updateScratchpadContent(nextContent);
+
+    // Automatically derive title from first line if title is blank
+    if (!title.trim()) {
+      const firstNonEmptyLine = nextContent
+        .split('\n')
+        .map((line) => line.trim())
+        .find((line) => line.length > 0);
+      if (firstNonEmptyLine) {
+        const derived = firstNonEmptyLine.slice(0, 60);
+        setTitle(derived);
+        updateScratchpadTitle(derived);
+      }
+    }
+  };
+
+  const handleClear = () => {
+    setTitle('Untitled Study Note');
+    setContent('');
+    clearScratchpadContent();
+    try {
+      localStorage.setItem(
+        SCRATCHPAD_STORAGE_KEY,
+        JSON.stringify({
+          ...scratchpad,
+          title: 'Untitled Study Note',
+          content: '',
+          updatedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Ignore storage write error
+    }
+  };
+
+  /**
+   * Exports current scratchpad note as a Markdown (.md) file.
+   * - Uses `window.electronAPI.exportMarkdown` when running inside Electron.
+   * - Falls back to an in-memory Blob (`text/markdown`) and temporary `<a download="...">`
+   *   when running in browser preview.
+   */
+  const exportScratchpadToMarkdown = useCallback(async () => {
+    const safeSlug =
+      (title || 'scratchpad-note')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '') || 'scratchpad-note';
+    const filename = `${safeSlug}.md`;
+
+    if (window.electronAPI?.exportMarkdown) {
+      try {
+        const result = await window.electronAPI.exportMarkdown(
+          content,
+          filename
+        );
+        if (!result.canceled || result.filePath) {
+          return;
+        }
+        if (result.canceled && !result.error) {
+          return;
+        }
+      } catch (err) {
+        console.warn(
+          'Electron bridge export failed; using browser Blob download fallback:',
+          err
+        );
+      }
+    }
+
+    // Browser preview fallback: in-memory Blob + temporary <a download="...">
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const tempAnchor = document.createElement('a');
+    tempAnchor.href = url;
+    tempAnchor.download = filename;
+    document.body.appendChild(tempAnchor);
+    tempAnchor.click();
+    document.body.removeChild(tempAnchor);
+    URL.revokeObjectURL(url);
+  }, [content, title]);
+
   const stats = useMemo(() => {
-    const raw = scratchpad.content;
-    const characters = raw.length;
-    const trimmed = raw.trim();
+    const characters = content.length;
+    const trimmed = content.trim();
     const words = trimmed === '' ? 0 : trimmed.split(/\s+/).length;
     return { words, characters };
-  }, [scratchpad.content]);
+  }, [content]);
 
   if (!isScratchpadOpen) {
     return null;
   }
 
-  const handleMouseEnter = () => {
-    setInteractiveRegionHovered('scratchpad', true);
-  };
-
-  const handleMouseLeave = () => {
-    setInteractiveRegionHovered('scratchpad', false);
-  };
-
   const handleHeaderMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Do not initiate drag if clicking a no-drag button
     if ((e.target as HTMLElement).closest('[data-no-drag="true"]')) {
       return;
     }
+
     dragOffsetRef.current = {
       startX: e.clientX - position.x,
       startY: e.clientY - position.y,
@@ -86,8 +219,8 @@ export const Scratchpad: React.FC = () => {
   };
 
   const handleOpenNoteClick = async () => {
-    const openedViaNative = await openNoteIntoScratchpad();
-    if (!openedViaNative) {
+    const handledByElectron = await openNoteIntoScratchpad();
+    if (!handledByElectron) {
       fileInputRef.current?.click();
     }
   };
@@ -97,9 +230,14 @@ export const Scratchpad: React.FC = () => {
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
+        const importedTitle = file.name.replace(/\.(md|markdown|txt)$/i, '');
+        setTitle(importedTitle);
+        setContent(reader.result);
+        updateScratchpadTitle(importedTitle);
         updateScratchpadContent(reader.result);
       }
     };
@@ -111,8 +249,8 @@ export const Scratchpad: React.FC = () => {
 
   return (
     <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={() => setInteractiveRegionHovered('scratchpad', true)}
+      onMouseLeave={() => setInteractiveRegionHovered('scratchpad', false)}
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
@@ -121,7 +259,7 @@ export const Scratchpad: React.FC = () => {
       }}
       className="fixed z-50 flex flex-col rounded-[20px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.75)] text-white overflow-hidden select-none transition-[height] duration-200"
     >
-      {/* Hidden Browser File Input Fallback for Open Note */}
+      {/* Hidden File Input for Browser Open Note Fallback */}
       <input
         ref={fileInputRef}
         type="file"
@@ -141,7 +279,7 @@ export const Scratchpad: React.FC = () => {
             Scratchpad
           </h2>
 
-          {/* Sync Indicator Pill */}
+          {/* Sync Status Pill */}
           {isSynced ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0E362D] px-2.5 py-0.5 text-[11.5px] font-medium text-[#4ADE80]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#4ADE80]" />
@@ -155,7 +293,7 @@ export const Scratchpad: React.FC = () => {
           )}
         </div>
 
-        {/* Window Controls (no-drag) */}
+        {/* Minimize & Close Controls (no-drag) */}
         <div
           data-no-drag="true"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -164,7 +302,7 @@ export const Scratchpad: React.FC = () => {
           <button
             type="button"
             onClick={() => setScratchpadMinimized(!isScratchpadMinimized)}
-            title={isScratchpadMinimized ? 'Restore Scratchpad' : 'Minimize'}
+            title={isScratchpadMinimized ? 'Expand Scratchpad' : 'Minimize'}
             className="flex h-7 w-7 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#29233B] hover:text-white transition cursor-pointer"
           >
             <svg
@@ -228,19 +366,28 @@ export const Scratchpad: React.FC = () => {
 
             <button
               type="button"
-              onClick={clearScratchpadContent}
+              onClick={handleClear}
               className="ml-1.5 px-2 py-1.5 text-[12.5px] font-medium text-[#9B8AFB] hover:text-[#B8ACFF] transition cursor-pointer"
             >
               Clear
             </button>
           </div>
 
-          {/* Multiline Plain Text Editor Area */}
+          {/* Note Title + Multiline Plain Text Editor Area */}
           <div className="flex-1 px-5 pb-3 flex flex-col min-h-0">
             <div className="relative flex-1 rounded-xl bg-[#0B0912] border border-[#241E34] p-3.5 flex flex-col min-h-0">
+              <input
+                type="text"
+                value={title}
+                onChange={handleTitleChange}
+                placeholder="Note title..."
+                aria-label="Scratchpad Note Title"
+                className="mb-2 w-full border-b border-[#1E192D] bg-transparent pb-1.5 text-[13.5px] font-semibold text-white placeholder-[#5A5373] focus:border-[#4D4177] focus:outline-none select-text"
+              />
+
               <textarea
-                value={scratchpad.content}
-                onChange={(e) => updateScratchpadContent(e.target.value)}
+                value={content}
+                onChange={handleContentChange}
                 placeholder="Write your study notes, formulas, or TODOs here..."
                 spellCheck={false}
                 className="w-full flex-1 resize-none bg-transparent text-[13.5px] leading-[1.6] text-[#DFDCF0] placeholder-[#5A5373] focus:outline-none select-text overflow-y-auto pr-2"

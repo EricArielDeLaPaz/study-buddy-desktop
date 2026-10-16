@@ -1,51 +1,63 @@
 // src/renderer/src/components/overlays/CenterOverlay.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useApp } from '../../context/AppContext';
 import { AnimationPlaceholder } from '../common/AnimationPlaceholder';
 
 /**
- * Formats total seconds as MM:SS (e.g. 300 -> "05:00", 600 -> "10:00")
+ * Formats seconds into MM:SS (e.g., 300 -> "05:00", 600 -> "10:00").
  */
-function formatCountdown(totalSeconds: number = 0): string {
-  const clamped = Math.max(0, Math.floor(totalSeconds));
-  const mins = Math.floor(clamped / 60);
-  const secs = clamped % 60;
+function formatTimerMMSS(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(safeSeconds / 60);
+  const secs = safeSeconds % 60;
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
+
+const TIME_INCREMENT_OPTIONS: ReadonlyArray<{
+  label: string;
+  seconds: number;
+}> = [
+  { label: '+30s', seconds: 30 },
+  { label: '+1m', seconds: 60 },
+  { label: '+5m', seconds: 300 },
+];
 
 export const CenterOverlay: React.FC = () => {
   const {
     activeOverlay,
+    timerSeconds,
+    isTimerCompleted,
+    addOverlayTime,
     dismissActiveOverlay,
-    extendActiveOverlayTimer,
     setInteractiveRegionHovered,
-  } = useAppContext();
+  } = useApp();
 
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [isPopoverOpen, setIsPopoverOpen] = useState<boolean>(false);
+  const popoverContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Reset popover whenever the overlay changes
+  // Close the increment popover whenever the overlay switches
   useEffect(() => {
-    setIsAddMenuOpen(false);
+    setIsPopoverOpen(false);
   }, [activeOverlay?.id, activeOverlay?.kind]);
 
-  // Close the + time popover if user clicks outside of it inside the card
+  // Close the popover when clicking outside of the '+' trigger/menu
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    function handleOutsideMouseDown(event: MouseEvent) {
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(event.target as Node)
+        popoverContainerRef.current &&
+        !popoverContainerRef.current.contains(event.target as Node)
       ) {
-        setIsAddMenuOpen(false);
+        setIsPopoverOpen(false);
       }
     }
-    if (isAddMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+
+    if (isPopoverOpen) {
+      document.addEventListener('mousedown', handleOutsideMouseDown);
     }
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleOutsideMouseDown);
     };
-  }, [isAddMenuOpen]);
+  }, [isPopoverOpen]);
 
   if (!activeOverlay || !activeOverlay.isActive) {
     return null;
@@ -56,24 +68,15 @@ export const CenterOverlay: React.FC = () => {
     animationSlot,
     buddyName,
     message,
-    remainingSeconds = 0,
     targetAppOrSite = 'Discord',
   } = activeOverlay;
 
-  const isTimedReminder =
+  const isTimedOverlay =
     kind === 'overlay_hydration' || kind === 'overlay_bathroom';
 
-  const handleCardMouseEnter = () => {
-    setInteractiveRegionHovered('center-overlay', true);
-  };
-
-  const handleCardMouseLeave = () => {
-    setInteractiveRegionHovered('center-overlay', false);
-  };
-
-  const handleAddTime = (secondsToAdd: number) => {
-    extendActiveOverlayTimer(secondsToAdd);
-    setIsAddMenuOpen(false);
+  const handleSelectIncrement = (secondsToAdd: number) => {
+    addOverlayTime(secondsToAdd);
+    setIsPopoverOpen(false);
   };
 
   return (
@@ -83,23 +86,26 @@ export const CenterOverlay: React.FC = () => {
       aria-modal="true"
       role="dialog"
     >
-      {/* Centered 420px Interactive Modal Card */}
+      {/* Centered 420px Modal Card */}
       <div
-        onMouseEnter={handleCardMouseEnter}
-        onMouseLeave={handleCardMouseLeave}
+        onMouseEnter={() =>
+          setInteractiveRegionHovered('center-overlay', true)
+        }
+        onMouseLeave={() =>
+          setInteractiveRegionHovered('center-overlay', false)
+        }
         className="relative w-[420px] rounded-[24px] bg-[#221D33] border border-[#342D4B] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] text-white select-none"
       >
-        {/* 512x512 Aspect Slot Avatar Placeholder */}
+        {/* 512x512 Aspect Avatar Placeholder Card */}
         <AnimationPlaceholder slot={animationSlot} size={220} />
 
-        {/* Buddy Title */}
+        {/* Buddy Name */}
         <h2 className="mt-4 text-center text-[20px] font-bold tracking-tight text-white">
           {buddyName}
         </h2>
 
-        {/* Speech Bubble with Top Center Caret */}
+        {/* Speech Bubble with Top Center Pointer */}
         <div className="relative mt-3.5">
-          {/* Upward Caret */}
           <div
             className="mx-auto h-0 w-0"
             style={{
@@ -109,11 +115,9 @@ export const CenterOverlay: React.FC = () => {
             }}
           />
 
-          {/* Bubble Container */}
           <div className="flex items-center gap-3 rounded-xl bg-[#3C3173] px-4 py-3.5 shadow-inner">
-            {isTimedReminder && (
+            {isTimedOverlay && (
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#491D2E]">
-                {/* Droplet / Reminder SVG Icon */}
                 <svg
                   width="15"
                   height="15"
@@ -137,11 +141,17 @@ export const CenterOverlay: React.FC = () => {
           </div>
         </div>
 
-        {/* Hydration & Bathroom Timer Pill + '+' Popover */}
-        {isTimedReminder && (
+        {/* Countdown Timer Pill & '+' Increment Popover */}
+        {isTimedOverlay && (
           <div className="mt-6 flex items-center justify-center gap-2.5">
-            {/* Timer Pill */}
-            <div className="flex items-center gap-2 rounded-full bg-[#110E1B] border border-[#2B253E] px-4 py-1.5 text-[12.5px] font-medium text-[#E2DFF0]">
+            {/* MM:SS Timer Pill */}
+            <div
+              className={`flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12.5px] font-medium transition-colors ${
+                isTimerCompleted
+                  ? 'bg-[#192D26] border-[#34D399]/50 text-[#6EE7B7]'
+                  : 'bg-[#110E1B] border-[#2B253E] text-[#E2DFF0]'
+              }`}
+            >
               <svg
                 width="14"
                 height="14"
@@ -151,22 +161,25 @@ export const CenterOverlay: React.FC = () => {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="text-[#9E97B8]"
+                className={
+                  isTimerCompleted ? 'text-[#34D399]' : 'text-[#9E97B8]'
+                }
               >
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />
               </svg>
               <span className="tabular-nums">
-                Timer: {formatCountdown(remainingSeconds)}
+                Timer: {formatTimerMMSS(timerSeconds)}
               </span>
             </div>
 
-            {/* '+' Button and Popover */}
-            <div className="relative" ref={popoverRef}>
+            {/* '+' Button & Increment Popover Menu */}
+            <div className="relative" ref={popoverContainerRef}>
               <button
                 type="button"
-                onClick={() => setIsAddMenuOpen((prev) => !prev)}
-                aria-label="Extend break timer"
+                onClick={() => setIsPopoverOpen((prev) => !prev)}
+                aria-expanded={isPopoverOpen}
+                aria-label="Add time to break timer"
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[#A594F9] text-[#171329] font-bold transition hover:bg-[#B5A7FA] active:scale-95 cursor-pointer"
               >
                 <svg
@@ -184,18 +197,18 @@ export const CenterOverlay: React.FC = () => {
                 </svg>
               </button>
 
-              {isAddMenuOpen && (
-                <div className="absolute left-1/2 bottom-full z-50 mb-2 flex -translate-x-1/2 items-center gap-1 rounded-xl bg-[#161224] border border-[#393154] p-1.5 shadow-xl">
-                  {[
-                    { label: '+30s', seconds: 30 },
-                    { label: '+1m', seconds: 60 },
-                    { label: '+5m', seconds: 300 },
-                  ].map((option) => (
+              {isPopoverOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-1/2 bottom-full z-50 mb-2.5 flex -translate-x-1/2 items-center gap-1 rounded-xl bg-[#161224] border border-[#393154] p-1.5 shadow-[0_12px_28px_rgba(0,0,0,0.65)]"
+                >
+                  {TIME_INCREMENT_OPTIONS.map((option) => (
                     <button
                       key={option.label}
                       type="button"
-                      onClick={() => handleAddTime(option.seconds)}
-                      className="rounded-lg px-2.5 py-1 text-[11.5px] font-semibold text-[#DDD8F3] hover:bg-[#3C3173] hover:text-white transition cursor-pointer"
+                      role="menuitem"
+                      onClick={() => handleSelectIncrement(option.seconds)}
+                      className="rounded-lg px-2.5 py-1 text-[11.5px] font-semibold text-[#DDD8F3] hover:bg-[#3C3173] hover:text-white transition cursor-pointer whitespace-nowrap"
                     >
                       {option.label}
                     </button>
@@ -206,7 +219,7 @@ export const CenterOverlay: React.FC = () => {
           </div>
         )}
 
-        {/* Action Buttons Row */}
+        {/* Primary Action Buttons */}
         <div className="mt-6">
           {kind === 'overlay_hydration' && (
             <button

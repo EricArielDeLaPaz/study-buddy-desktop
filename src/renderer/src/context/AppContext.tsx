@@ -16,7 +16,7 @@ import {
   TimerConfig,
 } from '../types/buddy';
 
-const SCRATCHPAD_STORAGE_KEY = 'study_buddy_scratchpad_note_v1';
+export const SCRATCHPAD_STORAGE_KEY = 'study_buddy_scratchpad';
 
 const DEFAULT_SCRATCHPAD_TEXT = `Chapter 4 – Cell respiration
 
@@ -39,7 +39,8 @@ export type OverlayDismissReason =
   | 'completed_bathroom'
   | 'keep_open'
   | 'close_target'
-  | 'expired';
+  | 'expired'
+  | 'manual_dismiss';
 
 export interface AppContextValue {
   // Buddy Idle/Active Animation Slot
@@ -51,12 +52,16 @@ export interface AppContextValue {
   toggleFocusTimer: () => void;
   resetFocusTimer: () => void;
 
-  // Overlays (Active + FIFO Queue)
+  // Active Overlay & Countdown Timer Engine
   activeOverlay: OverlayState | null;
   overlayQueue: OverlayState[];
+  timerSeconds: number;
+  isTimerCompleted: boolean;
   triggerOverlay: (kind: OverlayKind, options?: TriggerOverlayOptions) => void;
-  dismissActiveOverlay: (reason?: OverlayDismissReason) => void;
+  addOverlayTime: (additionalSeconds: number) => void;
   extendActiveOverlayTimer: (additionalSeconds: number) => void;
+  dismissActiveOverlay: (reason?: OverlayDismissReason) => void;
+  resolveOverlay: (reason?: OverlayDismissReason) => void;
 
   // Scratchpad State & Actions
   scratchpad: ScratchpadNote;
@@ -64,6 +69,7 @@ export interface AppContextValue {
   isScratchpadMinimized: boolean;
   setScratchpadOpen: (open: boolean) => void;
   setScratchpadMinimized: (minimized: boolean) => void;
+  updateScratchpadTitle: (title: string) => void;
   updateScratchpadContent: (content: string) => void;
   clearScratchpadContent: () => void;
   toggleSyncStatus: () => void;
@@ -77,6 +83,43 @@ export interface AppContextValue {
 }
 
 export const AppContext = createContext<AppContextValue | undefined>(undefined);
+
+/**
+ * Plays a gentle synthesized completion chime via Web Audio API when a break
+ * countdown reaches 00:00, falling back gracefully if audio is restricted.
+ */
+function playTimerCompletionCue(kind: OverlayKind): void {
+  console.info(
+    `[StudyBuddy] Timer reached 00:00 for ${kind}. Waiting for user confirmation.`
+  );
+
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.18); // A5
+
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.45);
+  } catch {
+    // Ignore audio context autoplay restrictions in headless/browser environments
+  }
+}
 
 function createOverlayPayload(
   kind: OverlayKind,
@@ -148,24 +191,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     secondsUntilBathroom: 50 * 60,
   });
 
-  // 3. Active Overlay & FIFO Queue State
+  // 3. Active Overlay & Countdown Timer State
   const [activeOverlay, setActiveOverlay] = useState<OverlayState | null>(() =>
-    createOverlayPayload('overlay_hydration')
+    createOverlayPayload('overlay_hydration', { durationSeconds: 300 })
   );
   const [overlayQueue, setOverlayQueue] = useState<OverlayState[]>([]);
+  const [timerSeconds, setTimerSeconds] = useState<number>(300);
+  const [isTimerCompleted, setIsTimerCompleted] = useState<boolean>(false);
 
-  // 4. Scratchpad Note Buffer State (with LocalStorage Hydration)
+  // 4. Scratchpad Note Buffer State (Hydrated from 'study_buddy_scratchpad')
   const [scratchpad, setScratchpad] = useState<ScratchpadNote>(() => {
     try {
       const saved = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved) as ScratchpadNote;
+        const parsed = JSON.parse(saved) as Partial<ScratchpadNote>;
         if (parsed && typeof parsed.content === 'string') {
-          return parsed;
+          return {
+            id: parsed.id || 'default-scratchpad',
+            title: parsed.title || 'Chapter 4 – Cell respiration',
+            content: parsed.content,
+            updatedAt: parsed.updatedAt || Date.now(),
+            syncStatus: parsed.syncStatus || 'synced',
+            phoneConnected: parsed.phoneConnected ?? true,
+            deviceName: parsed.deviceName || 'iPhone',
+          };
         }
       }
     } catch {
-      // Ignore malformed storage entries and fall back to default note
+      // Fall back to default note if storage read fails
     }
     return {
       id: 'default-scratchpad',
@@ -209,87 +262,96 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     [syncWindowClickThrough]
   );
 
-  // Auto-save scratchpad note to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(SCRATCHPAD_STORAGE_KEY, JSON.stringify(scratchpad));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [scratchpad]);
-
-  // Queue or immediately display an overlay
+  // Trigger an overlay and initialize its countdown timer
   const triggerOverlay = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
       const nextOverlay = createOverlayPayload(kind, options);
-      setActiveOverlay((current) => {
-        if (!current) {
-          return nextOverlay;
-        }
-        setOverlayQueue((queue) => [...queue, nextOverlay]);
-        return current;
-      });
+      const initialDuration =
+        typeof nextOverlay.remainingSeconds === 'number'
+          ? nextOverlay.remainingSeconds
+          : 0;
+
+      setActiveOverlay(nextOverlay);
+      setTimerSeconds(initialDuration);
+      setIsTimerCompleted(false);
     },
     []
   );
 
-  // Dismiss current overlay and advance FIFO queue if non-empty
+  // Add additional time (+30s, +1m, +5m) to the active overlay countdown
+  const addOverlayTime = useCallback((additionalSeconds: number) => {
+    setTimerSeconds((prev) => {
+      const updated = Math.max(0, prev + additionalSeconds);
+      setActiveOverlay((current) =>
+        current
+          ? {
+              ...current,
+              remainingSeconds: updated,
+            }
+          : null
+      );
+      return updated;
+    });
+    setIsTimerCompleted(false);
+  }, []);
+
+  // Dismiss/resolve active overlay, reset timerSeconds, and set activeOverlay = null
   const dismissActiveOverlay = useCallback(
     (_reason?: OverlayDismissReason) => {
       hoveredRegionsRef.current.delete('center-overlay');
+      hoveredRegionsRef.current.delete('center-overlay-card');
       syncWindowClickThrough();
 
-      setOverlayQueue((currentQueue) => {
-        if (currentQueue.length > 0) {
-          const [next, ...rest] = currentQueue;
-          setActiveOverlay(next);
-          return rest;
-        } else {
-          setActiveOverlay(null);
-          return [];
-        }
-      });
+      setTimerSeconds(0);
+      setIsTimerCompleted(false);
+      setOverlayQueue([]);
+      setActiveOverlay(null);
     },
     [syncWindowClickThrough]
   );
 
-  // Extend the active overlay countdown (+30s, +1m, +5m)
-  const extendActiveOverlayTimer = useCallback((additionalSeconds: number) => {
-    setActiveOverlay((current) => {
-      if (!current || typeof current.remainingSeconds !== 'number') {
-        return current;
-      }
-      return {
-        ...current,
-        remainingSeconds: Math.max(
-          0,
-          current.remainingSeconds + additionalSeconds
-        ),
-      };
-    });
-  }, []);
-
-  // 1-second Master Ticker for Focus Session & Active Overlay Countdown
+  // Internal 1-second setInterval Ticker for Active Overlay & Focus Session
   useEffect(() => {
     const interval = window.setInterval(() => {
-      // Tick active overlay countdown if one is open with a timer
-      setActiveOverlay((current) => {
-        if (
-          !current ||
-          typeof current.remainingSeconds !== 'number' ||
-          current.remainingSeconds <= 0
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          remainingSeconds: current.remainingSeconds - 1,
-        };
-      });
+      // 1. Decrement active overlay timer if active and timerSeconds > 0
+      if (
+        activeOverlay &&
+        activeOverlay.isActive &&
+        (activeOverlay.kind === 'overlay_hydration' ||
+          activeOverlay.kind === 'overlay_bathroom')
+      ) {
+        setTimerSeconds((prevSeconds) => {
+          if (prevSeconds <= 0) {
+            return 0;
+          }
 
-      // Tick focus & reminder intervals
+          const nextSeconds = prevSeconds - 1;
+
+          // Keep activeOverlay.remainingSeconds synchronized
+          setActiveOverlay((current) =>
+            current
+              ? {
+                  ...current,
+                  remainingSeconds: nextSeconds,
+                }
+              : null
+          );
+
+          // When timerSeconds reaches 0, log/play completion and hold waiting state
+          if (nextSeconds === 0) {
+            setIsTimerCompleted(true);
+            playTimerCompletionCue(activeOverlay.kind);
+          }
+
+          return nextSeconds;
+        });
+      }
+
+      // 2. Tick background focus session timers when no overlay is blocking
       setTimerConfig((prev) => {
-        if (!prev.isRunning) return prev;
+        if (!prev.isRunning || activeOverlay !== null) {
+          return prev;
+        }
 
         const nextHydration = prev.secondsUntilHydration - 1;
         const nextBathroom = prev.secondsUntilBathroom - 1;
@@ -298,9 +360,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           triggerOverlay('overlay_hydration', {
             durationSeconds: prev.hydrationBreakDurationSeconds,
           });
-        }
-
-        if (nextBathroom <= 0) {
+        } else if (nextBathroom <= 0) {
           triggerOverlay('overlay_bathroom', {
             durationSeconds: prev.bathroomBreakDurationSeconds,
           });
@@ -318,7 +378,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [triggerOverlay]);
+  }, [activeOverlay, triggerOverlay]);
 
   const toggleFocusTimer = useCallback(() => {
     setTimerConfig((prev) => ({ ...prev, isRunning: !prev.isRunning }));
@@ -333,8 +393,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
+  const updateScratchpadTitle = useCallback((title: string) => {
+    setScratchpad((prev) => ({
+      ...prev,
+      title,
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
   const updateScratchpadContent = useCallback((content: string) => {
-    const firstLine =
+    const inferredTitle =
       content
         .split('\n')
         .map((line) => line.trim())
@@ -342,7 +410,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setScratchpad((prev) => ({
       ...prev,
-      title: firstLine.slice(0, 60),
+      title: prev.title?.trim() ? prev.title : inferredTitle.slice(0, 60),
       content,
       updatedAt: Date.now(),
     }));
@@ -375,7 +443,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
-  // Export Scratchpad Note as Markdown via IPC bridge (or browser Blob fallback)
+  // Export Scratchpad Note as Markdown via Electron IPC or Browser Blob fallback
   const exportScratchpadToMarkdown = useCallback(async () => {
     const safeSlug =
       scratchpad.title
@@ -384,7 +452,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         .replace(/(^-|-$)/g, '') || 'scratchpad-note';
     const filename = `${safeSlug}.md`;
 
-    // 1. Primary Stage 2 IPC Bridge: window.electronAPI.exportMarkdown(content, filename)
     if (window.electronAPI?.exportMarkdown) {
       try {
         const result = await window.electronAPI.exportMarkdown(
@@ -397,37 +464,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         if (result.canceled && !result.error) {
           return;
         }
-      } catch (error) {
-        console.error('IPC exportMarkdown failed, falling back to Blob:', error);
-      }
-    }
-
-    // 2. Secondary fallback if Stage 1 buddyAPI bridge is present
-    if (window.buddyAPI?.exportMarkdown) {
-      try {
-        const result = await window.buddyAPI.exportMarkdown(
-          filename,
-          scratchpad.content
+      } catch (err) {
+        console.warn(
+          'Electron exportMarkdown failed, falling back to browser download:',
+          err
         );
-        if (!result.canceled || result.filePath) {
-          return;
-        }
-      } catch {
-        // Continue to browser Blob download fallback
       }
     }
 
-    // 3. Browser Blob download fallback for web preview / Codespaces environments
-    const blob = new Blob([scratchpad.content], {
-      type: 'text/markdown;charset=utf-8;',
-    });
+    const blob = new Blob([scratchpad.content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   }, [scratchpad.content, scratchpad.title]);
 
@@ -457,14 +509,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         resetFocusTimer,
         activeOverlay,
         overlayQueue,
+        timerSeconds,
+        isTimerCompleted,
         triggerOverlay,
+        addOverlayTime,
+        extendActiveOverlayTimer: addOverlayTime,
         dismissActiveOverlay,
-        extendActiveOverlayTimer,
+        resolveOverlay: dismissActiveOverlay,
         scratchpad,
         isScratchpadOpen,
         isScratchpadMinimized,
         setScratchpadOpen,
         setScratchpadMinimized,
+        updateScratchpadTitle,
         updateScratchpadContent,
         clearScratchpadContent,
         toggleSyncStatus,
