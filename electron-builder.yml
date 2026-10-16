@@ -1,43 +1,67 @@
-appId: com.electron.app
-productName: study-buddy
+# electron-builder.yml
+appId: tech.ericarieldelapaz.studybuddy
+productName: Study Buddy
+copyright: Copyright © 2026 Eric Ariel De La Paz
+
 directories:
+  output: dist
   buildResources: build
+
+asar: true
+
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-asarUnpack:
-  - resources/**
+  - "out/**/*"
+  - "package.json"
+  - "!src/**/*"
+  - "!electron.vite.config.*"
+  - "!tsconfig*.json"
+  - "!tailwind.config.*"
+  - "!postcss.config.*"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml,package-lock.json}"
+
+# Windows Configuration
 win:
-  executableName: study-buddy
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
-mac:
-  entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}.${ext}
-linux:
+  executableName: Study-Buddy
   target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  artifactName: "${productName}-${version}-Setup-${arch}.${ext}"
+  shortcutName: "${productName}"
+  uninstallDisplayName: "${productName}"
+  createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+# macOS Configuration
+mac:
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+
+dmg:
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+
+# Linux Configuration
+linux:
   category: Utility
+  synopsis: Interactive desktop focus companion, reminders, and study scratchpad.
+  target:
+    - target: AppImage
+      arch:
+        - x64
+
 appImage:
-  artifactName: ${name}-${version}.${ext}
-npmRebuild: false
+  artifactName: "${productName}-${version}-${arch}.${ext}"
+
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  releaseType: draft
