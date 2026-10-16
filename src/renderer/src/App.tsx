@@ -7,6 +7,7 @@ import {
 } from './context/AppContext';
 import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad } from './components/scratchpad/Scratchpad';
+import { FocusController } from './components/focus/FocusController';
 import { OverlayKind } from './types/buddy';
 import type {
   OverlayTriggerType,
@@ -41,13 +42,13 @@ const StudyBuddyViewport: React.FC = () => {
   );
 
   /**
-   * Helper to immediately display a specific overlay state when testing from the Dev Bar
-   * or responding to a Main Process IPC trigger, even if another overlay is currently open.
+   * Activates a requested overlay immediately and plays the corresponding
+   * synthesized Web Audio chime inside `triggerOverlay`.
    */
   const activateOverlayImmediately = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
       if (activeOverlay !== null) {
-        dismissActiveOverlay();
+        dismissActiveOverlay('manual_dismiss');
         window.setTimeout(() => {
           triggerOverlay(kind, options);
         }, 0);
@@ -98,7 +99,7 @@ const StudyBuddyViewport: React.FC = () => {
 
   return (
     <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
-      {/* 1. Floating Movable Scratchpad (Interactive Surface) */}
+      {/* 1. Floating Movable Scratchpad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -111,16 +112,25 @@ const StudyBuddyViewport: React.FC = () => {
         <Scratchpad />
       </div>
 
-      {/* 2. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {/* 2. Floating Autonomous Focus Controller & Session Stats Card */}
+      <div
+        className="pointer-events-auto"
+        onMouseEnter={() =>
+          handleInteractiveRegionHover('focus-controller-shell', true)
+        }
+        onMouseLeave={() =>
+          handleInteractiveRegionHover('focus-controller-shell', false)
+        }
+      >
+        <FocusController />
+      </div>
+
+      {/* 3. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
       {activeOverlay !== null && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none transition-opacity duration-300"
           style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
         >
-          {/*
-            The backdrop remains pointer-events-none so clicks pass through to underlying
-            OS windows, while the 420px CenterOverlay modal card captures pointer events.
-          */}
           <div
             className="pointer-events-auto [&>div]:!bg-transparent [&>div]:pointer-events-none [&>div>div]:pointer-events-auto"
             onMouseEnter={() =>
@@ -135,7 +145,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Floating Collapsible Dev Trigger Bar */}
+      {/* 4. Floating Collapsible Dev Trigger Bar */}
       <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 pointer-events-none">
         <div
           onMouseEnter={() =>
@@ -224,7 +234,7 @@ const StudyBuddyViewport: React.FC = () => {
                 type="button"
                 onClick={() => {
                   handleInteractiveRegionHover('center-overlay-card', false);
-                  dismissActiveOverlay();
+                  dismissActiveOverlay('manual_dismiss');
                 }}
                 disabled={activeOverlay === null}
                 className={`rounded-full px-3 py-1 font-medium transition ${

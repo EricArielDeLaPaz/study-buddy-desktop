@@ -15,8 +15,19 @@ import {
   ScratchpadSyncStatus,
   TimerConfig,
 } from '../types/buddy';
+import { playChime } from '../utils/audio';
 
 export const SCRATCHPAD_STORAGE_KEY = 'study_buddy_scratchpad';
+export const SESSION_STATS_STORAGE_KEY = 'study_buddy_session_stats';
+
+export type SessionStatus = 'idle' | 'focusing' | 'on_break' | 'paused';
+
+export interface SessionStats {
+  totalFocusMinutes: number;
+  hydrationCount: number;
+  breaksCompleted: number;
+  lastUpdatedDate: string;
+}
 
 const DEFAULT_SCRATCHPAD_TEXT = `Chapter 4 – Cell respiration
 
@@ -32,6 +43,7 @@ export interface TriggerOverlayOptions {
   durationSeconds?: number;
   strictMode?: boolean;
   message?: string;
+  silent?: boolean;
 }
 
 export type OverlayDismissReason =
@@ -47,7 +59,21 @@ export interface AppContextValue {
   currentAnimationSlot: AnimationSlotId;
   setCurrentAnimationSlot: (slot: AnimationSlotId) => void;
 
-  // Focus & Break Timer Configuration
+  // Stage 5 Autonomous Focus Session State & Controls
+  sessionStatus: SessionStatus;
+  focusTimeRemaining: number;
+  focusTargetMinutes: number;
+  hydrationIntervalMinutes: number;
+  sessionStats: SessionStats;
+  setFocusTargetMinutes: (minutes: number) => void;
+  setHydrationIntervalMinutes: (minutes: number) => void;
+  startFocusSession: () => void;
+  pauseFocusSession: () => void;
+  toggleFocusSession: () => void;
+  skipFocusBlock: () => void;
+  resetDailyStats: () => void;
+
+  // Legacy TimerConfig Compatibility
   timerConfig: TimerConfig;
   toggleFocusTimer: () => void;
   resetFocusTimer: () => void;
@@ -84,41 +110,35 @@ export interface AppContextValue {
 
 export const AppContext = createContext<AppContextValue | undefined>(undefined);
 
-/**
- * Plays a gentle synthesized completion chime via Web Audio API when a break
- * countdown reaches 00:00, falling back gracefully if audio is restricted.
- */
-function playTimerCompletionCue(kind: OverlayKind): void {
-  console.info(
-    `[StudyBuddy] Timer reached 00:00 for ${kind}. Waiting for user confirmation.`
-  );
+function getTodayDateKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
+function loadInitialSessionStats(): SessionStats {
+  const today = getTodayDateKey();
   try {
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
-    if (!AudioCtx) return;
-
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.18); // A5
-
-    gain.gain.setValueAtTime(0.08, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start();
-    osc.stop(ctx.currentTime + 0.45);
+    const raw = localStorage.getItem(SESSION_STATS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SessionStats>;
+      if (parsed && typeof parsed.totalFocusMinutes === 'number') {
+        return {
+          totalFocusMinutes: parsed.totalFocusMinutes ?? 0,
+          hydrationCount: parsed.hydrationCount ?? 0,
+          breaksCompleted: parsed.breaksCompleted ?? 0,
+          lastUpdatedDate: parsed.lastUpdatedDate || today,
+        };
+      }
+    }
   } catch {
-    // Ignore audio context autoplay restrictions in headless/browser environments
+    // Ignore malformed JSON in localStorage
   }
+
+  return {
+    totalFocusMinutes: 0,
+    hydrationCount: 0,
+    breaksCompleted: 0,
+    lastUpdatedDate: today,
+  };
 }
 
 function createOverlayPayload(
@@ -174,32 +194,57 @@ function createOverlayPayload(
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  // 1. Buddy Animation Slot State
+  // 1. Buddy Animation Slot
   const [currentAnimationSlot, setCurrentAnimationSlot] =
     useState<AnimationSlotId>('idle_studying');
 
-  // 2. Focus & Reminder Timers State
+  // 2. Stage 5 Focus Session & Cadence State
+  const [focusTargetMinutes, setFocusTargetMinutesState] = useState<number>(25);
+  const [hydrationIntervalMinutes, setHydrationIntervalMinutesState] =
+    useState<number>(30);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>('focusing');
+  const [focusTimeRemaining, setFocusTimeRemaining] = useState<number>(25 * 60);
+
+  // Track accumulated seconds toward each focused minute and hydration/bathroom alternation
+  const focusedSecondsBufferRef = useRef<number>(0);
+  const minutesSinceLastBathroomRef = useRef<number>(0);
+
+  // 3. Persistent Session Analytics ('study_buddy_session_stats')
+  const [sessionStats, setSessionStats] = useState<SessionStats>(
+    loadInitialSessionStats
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        SESSION_STATS_STORAGE_KEY,
+        JSON.stringify(sessionStats)
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [sessionStats]);
+
+  // 4. Active Overlay & Break Countdown Engine
+  const [activeOverlay, setActiveOverlay] = useState<OverlayState | null>(null);
+  const [overlayQueue, setOverlayQueue] = useState<OverlayState[]>([]);
+  const [timerSeconds, setTimerSeconds] = useState<number>(0);
+  const [isTimerCompleted, setIsTimerCompleted] = useState<boolean>(false);
+
+  // 5. Legacy TimerConfig State (kept synchronized for compatibility)
   const [timerConfig, setTimerConfig] = useState<TimerConfig>({
     focusDurationSeconds: 25 * 60,
-    hydrationIntervalSeconds: 25 * 60,
+    hydrationIntervalSeconds: 30 * 60,
     hydrationBreakDurationSeconds: 5 * 60,
-    bathroomIntervalSeconds: 50 * 60,
+    bathroomIntervalSeconds: 60 * 60,
     bathroomBreakDurationSeconds: 10 * 60,
     isRunning: true,
     elapsedFocusSeconds: 0,
-    secondsUntilHydration: 25 * 60,
-    secondsUntilBathroom: 50 * 60,
+    secondsUntilHydration: 30 * 60,
+    secondsUntilBathroom: 60 * 60,
   });
 
-  // 3. Active Overlay & Countdown Timer State
-  const [activeOverlay, setActiveOverlay] = useState<OverlayState | null>(() =>
-    createOverlayPayload('overlay_hydration', { durationSeconds: 300 })
-  );
-  const [overlayQueue, setOverlayQueue] = useState<OverlayState[]>([]);
-  const [timerSeconds, setTimerSeconds] = useState<number>(300);
-  const [isTimerCompleted, setIsTimerCompleted] = useState<boolean>(false);
-
-  // 4. Scratchpad Note Buffer State (Hydrated from 'study_buddy_scratchpad')
+  // 6. Scratchpad State ('study_buddy_scratchpad')
   const [scratchpad, setScratchpad] = useState<ScratchpadNote>(() => {
     try {
       const saved = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
@@ -218,7 +263,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
     } catch {
-      // Fall back to default note if storage read fails
+      // Fall back to default note
     }
     return {
       id: 'default-scratchpad',
@@ -235,7 +280,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isScratchpadMinimized, setScratchpadMinimized] =
     useState<boolean>(false);
 
-  // 5. Hovered Interactive Regions Set & Dynamic Click-Through Synchronization
+  // 7. Dynamic Click-Through Region Tracking
   const hoveredRegionsRef = useRef<Set<string>>(new Set());
 
   const syncWindowClickThrough = useCallback(() => {
@@ -262,7 +307,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     [syncWindowClickThrough]
   );
 
-  // Trigger an overlay and initialize its countdown timer
+  // Trigger an overlay and play corresponding Web Audio chime
   const triggerOverlay = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
       const nextOverlay = createOverlayPayload(kind, options);
@@ -274,11 +319,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       setActiveOverlay(nextOverlay);
       setTimerSeconds(initialDuration);
       setIsTimerCompleted(false);
+      setCurrentAnimationSlot(nextOverlay.animationSlot);
+
+      if (kind === 'overlay_hydration' || kind === 'overlay_bathroom') {
+        setSessionStatus('on_break');
+      }
+
+      if (!options?.silent) {
+        if (kind === 'overlay_intervention') {
+          playChime('alert');
+        } else {
+          playChime('gentle_bell');
+        }
+      }
     },
     []
   );
 
-  // Add additional time (+30s, +1m, +5m) to the active overlay countdown
+  // Add +30s, +1m, or +5m to the active break countdown
   const addOverlayTime = useCallback((additionalSeconds: number) => {
     setTimerSeconds((prev) => {
       const updated = Math.max(0, prev + additionalSeconds);
@@ -295,25 +353,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     setIsTimerCompleted(false);
   }, []);
 
-  // Dismiss/resolve active overlay, reset timerSeconds, and set activeOverlay = null
+  // Dismiss overlay, record break/hydration completion stats, and auto-restart next focus block
   const dismissActiveOverlay = useCallback(
-    (_reason?: OverlayDismissReason) => {
+    (reason?: OverlayDismissReason) => {
       hoveredRegionsRef.current.delete('center-overlay');
       hoveredRegionsRef.current.delete('center-overlay-card');
       syncWindowClickThrough();
+
+      const dismissedKind = activeOverlay?.kind;
+
+      // Check if user confirmed hydration or bathroom break completion
+      const confirmedHydration =
+        reason === 'completed_hydration' ||
+        (dismissedKind === 'overlay_hydration' && reason !== 'manual_dismiss');
+
+      const confirmedBathroom =
+        reason === 'completed_bathroom' ||
+        (dismissedKind === 'overlay_bathroom' && reason !== 'manual_dismiss');
+
+      if (confirmedHydration || confirmedBathroom) {
+        setSessionStats((prev) => ({
+          ...prev,
+          hydrationCount: confirmedHydration
+            ? prev.hydrationCount + 1
+            : prev.hydrationCount,
+          breaksCompleted: prev.breaksCompleted + 1,
+          lastUpdatedDate: getTodayDateKey(),
+        }));
+
+        // Automatically restart the next focus block
+        setFocusTimeRemaining(focusTargetMinutes * 60);
+        setSessionStatus('focusing');
+        setCurrentAnimationSlot('idle_studying');
+        playChime('break_start');
+      } else if (sessionStatus === 'on_break') {
+        // If manually dismissed from Dev Bar during a break, return to focusing
+        setFocusTimeRemaining(focusTargetMinutes * 60);
+        setSessionStatus('focusing');
+        setCurrentAnimationSlot('idle_studying');
+      }
 
       setTimerSeconds(0);
       setIsTimerCompleted(false);
       setOverlayQueue([]);
       setActiveOverlay(null);
     },
-    [syncWindowClickThrough]
+    [
+      activeOverlay,
+      focusTargetMinutes,
+      sessionStatus,
+      syncWindowClickThrough,
+    ]
   );
 
-  // Internal 1-second setInterval Ticker for Active Overlay & Focus Session
+  // Master 1-Second Scheduler & Overlay Countdown Engine
   useEffect(() => {
     const interval = window.setInterval(() => {
-      // 1. Decrement active overlay timer if active and timerSeconds > 0
+      // 1. If a timed break overlay is active, decrement its countdown
       if (
         activeOverlay &&
         activeOverlay.isActive &&
@@ -324,10 +420,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           if (prevSeconds <= 0) {
             return 0;
           }
-
           const nextSeconds = prevSeconds - 1;
 
-          // Keep activeOverlay.remainingSeconds synchronized
           setActiveOverlay((current) =>
             current
               ? {
@@ -337,62 +431,166 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
               : null
           );
 
-          // When timerSeconds reaches 0, log/play completion and hold waiting state
           if (nextSeconds === 0) {
             setIsTimerCompleted(true);
-            playTimerCompletionCue(activeOverlay.kind);
+            playChime('break_start');
           }
 
           return nextSeconds;
         });
+        return;
       }
 
-      // 2. Tick background focus session timers when no overlay is blocking
-      setTimerConfig((prev) => {
-        if (!prev.isRunning || activeOverlay !== null) {
-          return prev;
+      // 2. If session is actively focusing and no overlay is blocking, decrement focusTimeRemaining
+      if (sessionStatus === 'focusing' && activeOverlay === null) {
+        // Track every 60 seconds of active focus to increment totalFocusMinutes
+        focusedSecondsBufferRef.current += 1;
+        if (focusedSecondsBufferRef.current >= 60) {
+          focusedSecondsBufferRef.current -= 60;
+          minutesSinceLastBathroomRef.current += 1;
+
+          setSessionStats((prev) => ({
+            ...prev,
+            totalFocusMinutes: prev.totalFocusMinutes + 1,
+            lastUpdatedDate: getTodayDateKey(),
+          }));
         }
 
-        const nextHydration = prev.secondsUntilHydration - 1;
-        const nextBathroom = prev.secondsUntilBathroom - 1;
+        setFocusTimeRemaining((prevRemaining) => {
+          if (prevRemaining <= 1) {
+            // Focus interval hit 0: decide between bathroom break vs hydration reminder
+            const shouldTriggerBathroom =
+              minutesSinceLastBathroomRef.current >=
+              hydrationIntervalMinutes * 2;
 
-        if (nextHydration <= 0) {
-          triggerOverlay('overlay_hydration', {
-            durationSeconds: prev.hydrationBreakDurationSeconds,
-          });
-        } else if (nextBathroom <= 0) {
-          triggerOverlay('overlay_bathroom', {
-            durationSeconds: prev.bathroomBreakDurationSeconds,
-          });
-        }
+            if (shouldTriggerBathroom) {
+              minutesSinceLastBathroomRef.current = 0;
+              triggerOverlay('overlay_bathroom', { durationSeconds: 600 });
+            } else {
+              triggerOverlay('overlay_hydration', { durationSeconds: 300 });
+            }
 
-        return {
+            return 0;
+          }
+
+          return prevRemaining - 1;
+        });
+
+        setTimerConfig((prev) => ({
           ...prev,
+          isRunning: true,
           elapsedFocusSeconds: prev.elapsedFocusSeconds + 1,
-          secondsUntilHydration:
-            nextHydration <= 0 ? prev.hydrationIntervalSeconds : nextHydration,
-          secondsUntilBathroom:
-            nextBathroom <= 0 ? prev.bathroomIntervalSeconds : nextBathroom,
-        };
-      });
+        }));
+      }
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [activeOverlay, triggerOverlay]);
+  }, [
+    activeOverlay,
+    hydrationIntervalMinutes,
+    sessionStatus,
+    triggerOverlay,
+  ]);
 
-  const toggleFocusTimer = useCallback(() => {
-    setTimerConfig((prev) => ({ ...prev, isRunning: !prev.isRunning }));
+  // Stage 5 Focus Controller Actions
+  const setFocusTargetMinutes = useCallback(
+    (minutes: number) => {
+      const clamped = Math.max(1, Math.min(180, minutes));
+      setFocusTargetMinutesState(clamped);
+      if (sessionStatus !== 'on_break') {
+        setFocusTimeRemaining(clamped * 60);
+      }
+    },
+    [sessionStatus]
+  );
+
+  const setHydrationIntervalMinutes = useCallback((minutes: number) => {
+    const clamped = Math.max(5, Math.min(180, minutes));
+    setHydrationIntervalMinutesState(clamped);
   }, []);
 
-  const resetFocusTimer = useCallback(() => {
-    setTimerConfig((prev) => ({
+  const startFocusSession = useCallback(() => {
+    if (focusTimeRemaining <= 0) {
+      setFocusTimeRemaining(focusTargetMinutes * 60);
+    }
+    setSessionStatus('focusing');
+    setCurrentAnimationSlot('idle_studying');
+  }, [focusTargetMinutes, focusTimeRemaining]);
+
+  const pauseFocusSession = useCallback(() => {
+    setSessionStatus('paused');
+    setCurrentAnimationSlot('status_sleeping');
+  }, []);
+
+  const toggleFocusSession = useCallback(() => {
+    setSessionStatus((prev) => {
+      if (prev === 'focusing') {
+        setCurrentAnimationSlot('status_sleeping');
+        return 'paused';
+      }
+      if (focusTimeRemaining <= 0) {
+        setFocusTimeRemaining(focusTargetMinutes * 60);
+      }
+      setCurrentAnimationSlot('idle_studying');
+      return 'focusing';
+    });
+  }, [focusTargetMinutes, focusTimeRemaining]);
+
+  // Allows skipping the remainder of the current focus block to immediately trigger the scheduled break
+  const skipFocusBlock = useCallback(() => {
+    const earnedMinutes = Math.max(
+      1,
+      Math.round((focusTargetMinutes * 60 - focusTimeRemaining) / 60)
+    );
+
+    setSessionStats((prev) => ({
       ...prev,
-      elapsedFocusSeconds: 0,
-      secondsUntilHydration: prev.hydrationIntervalSeconds,
-      secondsUntilBathroom: prev.bathroomIntervalSeconds,
+      totalFocusMinutes: prev.totalFocusMinutes + earnedMinutes,
+      lastUpdatedDate: getTodayDateKey(),
     }));
+
+    minutesSinceLastBathroomRef.current += focusTargetMinutes;
+    const shouldTriggerBathroom =
+      minutesSinceLastBathroomRef.current >= hydrationIntervalMinutes * 2;
+
+    if (shouldTriggerBathroom) {
+      minutesSinceLastBathroomRef.current = 0;
+      triggerOverlay('overlay_bathroom', { durationSeconds: 600 });
+    } else {
+      triggerOverlay('overlay_hydration', { durationSeconds: 300 });
+    }
+  }, [
+    focusTargetMinutes,
+    focusTimeRemaining,
+    hydrationIntervalMinutes,
+    triggerOverlay,
+  ]);
+
+  const resetDailyStats = useCallback(() => {
+    const fresh: SessionStats = {
+      totalFocusMinutes: 0,
+      hydrationCount: 0,
+      breaksCompleted: 0,
+      lastUpdatedDate: getTodayDateKey(),
+    };
+    focusedSecondsBufferRef.current = 0;
+    minutesSinceLastBathroomRef.current = 0;
+    setSessionStats(fresh);
+    try {
+      localStorage.setItem(SESSION_STATS_STORAGE_KEY, JSON.stringify(fresh));
+    } catch {
+      // Ignore storage write error
+    }
   }, []);
 
+  // Legacy TimerConfig methods mapped to new Focus Session controls
+  const toggleFocusTimer = toggleFocusSession;
+  const resetFocusTimer = useCallback(() => {
+    setFocusTimeRemaining(focusTargetMinutes * 60);
+    setSessionStatus('idle');
+  }, [focusTargetMinutes]);
+
+  // Scratchpad State Handlers
   const updateScratchpadTitle = useCallback((title: string) => {
     setScratchpad((prev) => ({
       ...prev,
@@ -443,7 +641,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
-  // Export Scratchpad Note as Markdown via Electron IPC or Browser Blob fallback
   const exportScratchpadToMarkdown = useCallback(async () => {
     const safeSlug =
       scratchpad.title
@@ -504,6 +701,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       value={{
         currentAnimationSlot,
         setCurrentAnimationSlot,
+        sessionStatus,
+        focusTimeRemaining,
+        focusTargetMinutes,
+        hydrationIntervalMinutes,
+        sessionStats,
+        setFocusTargetMinutes,
+        setHydrationIntervalMinutes,
+        startFocusSession,
+        pauseFocusSession,
+        toggleFocusSession,
+        skipFocusBlock,
+        resetDailyStats,
         timerConfig,
         toggleFocusTimer,
         resetFocusTimer,
