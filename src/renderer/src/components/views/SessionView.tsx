@@ -47,8 +47,6 @@ const SESSION_PRESETS: ReadonlyArray<SessionPreset> = [
   },
 ];
 
-const GOAL_CATEGORIES = ['Reading', 'Homework', 'Exam prep', 'Writing'] as const;
-
 function formatClock(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds));
   const mins = Math.floor(safe / 60);
@@ -75,8 +73,6 @@ export const SessionView: React.FC = () => {
   const [studyGoal, setStudyGoal] = useState<string>(
     'Complete Chapter 4 cellular respiration synthesis notes'
   );
-  const [selectedCategory, setSelectedCategory] =
-    useState<string>('Exam prep');
 
   const handleSelectPreset = (preset: SessionPreset) => {
     setSelectedPreset(preset.id);
@@ -86,7 +82,9 @@ export const SessionView: React.FC = () => {
 
   const adjustFocusMinutes = (delta: number) => {
     setSelectedPreset('custom');
-    setFocusTargetMinutes(Math.max(5, Math.min(180, focusTargetMinutes + delta)));
+    setFocusTargetMinutes(
+      Math.max(5, Math.min(180, focusTargetMinutes + delta))
+    );
   };
 
   const adjustBreakMinutes = (delta: number) => {
@@ -167,9 +165,9 @@ export const SessionView: React.FC = () => {
 
       {/* Main Two-Column Setup Grid */}
       <div className="grid grid-cols-12 gap-5">
-        {/* Left Column: Study Goal Input, Category Pills & Timer Steppers */}
+        {/* Left Column: Study Goal Input & Timer Steppers */}
         <div className="col-span-7 flex flex-col gap-5 rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
-          {/* Study Goal Section */}
+          {/* Clean Study Goal Section (Categories Removed) */}
           <div>
             <label
               htmlFor="study-goal-input"
@@ -185,30 +183,6 @@ export const SessionView: React.FC = () => {
               placeholder="What are you working on right now?"
               className="mt-2 w-full rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2.5 text-[13.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
             />
-
-            {/* Quick Category Pills */}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-[11.5px] text-[#8E87A8] mr-1">
-                Category:
-              </span>
-              {GOAL_CATEGORIES.map((category) => {
-                const active = selectedCategory === category;
-                return (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() => setSelectedCategory(category)}
-                    className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition cursor-pointer ${
-                      active
-                        ? 'bg-[#A594F9] text-[#171329] font-semibold'
-                        : 'bg-[#221C35] text-[#C4B5FD] hover:bg-[#2E2647]'
-                    }`}
-                  >
-                    {category}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           <hr className="border-[#262038]" />
@@ -320,8 +294,8 @@ export const SessionView: React.FC = () => {
             <span className="font-semibold text-[#E2DFF0]">
               Companion Preview
             </span>
-            <span className="rounded-full bg-[#241E36] px-2.5 py-0.5 text-[11px] text-[#A594F9]">
-              {selectedCategory}
+            <span className="rounded-full bg-[#241E36] px-2.5 py-0.5 text-[11px] font-semibold text-[#A594F9]">
+              {SESSION_PRESETS.find((p) => p.id === selectedPreset)?.title}
             </span>
           </div>
 

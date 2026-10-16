@@ -14,9 +14,9 @@ export type NavTabId =
 export interface SidebarProps {
   activeTab: NavTabId;
   onSelectTab: (tab: NavTabId) => void;
-  blockedSitesCount: number;
-  isFocusModeActive: boolean;
-  onOpenScratchpad: () => void;
+  blockedSitesCount?: number;
+  isFocusModeActive?: boolean;
+  onOpenScratchpad?: () => void;
 }
 
 interface NavItemConfig {
@@ -185,103 +185,54 @@ const NAV_ITEMS: ReadonlyArray<NavItemConfig> = [
   },
 ];
 
-export const Sidebar: React.FC<SidebarProps> = ({
-  activeTab,
-  onSelectTab,
-  blockedSitesCount,
-  isFocusModeActive,
-  onOpenScratchpad,
-}) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab }) => {
   return (
-    <aside className="flex h-full w-[220px] shrink-0 flex-col justify-between border-r border-[#262038] bg-[#120F1D] select-none">
+    <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-[#262038] bg-[#120F1D] select-none">
       {/* Top Brand Header */}
-      <div>
-        <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#3C3173] border border-[#5B4B9A] text-white font-bold shadow-inner">
-            M
-          </div>
-          <div>
-            <h1 className="text-[15px] font-bold tracking-tight text-white leading-none">
-              Study Buddy
-            </h1>
-            <p className="mt-1 text-[11px] font-medium text-[#8E87A8]">
-              Mambo Companion
-            </p>
-          </div>
+      <div className="flex items-center gap-3 px-5 pt-5 pb-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#3C3173] border border-[#5B4B9A] text-white font-bold shadow-inner">
+          M
         </div>
+        <div>
+          <h1 className="text-[15px] font-bold tracking-tight text-white leading-none">
+            Study Buddy
+          </h1>
+          <p className="mt-1 text-[11px] font-medium text-[#8E87A8]">
+            Mambo Companion
+          </p>
+        </div>
+      </div>
 
-        {/* Navigation Links (Messages tab removed) */}
-        <nav
-          className="mt-1 flex flex-col gap-1 px-2.5"
-          aria-label="Main Navigation"
-        >
-          {NAV_ITEMS.map((item) => {
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectTab(item.id)}
-                className={`flex w-full items-center justify-between rounded-r-xl px-3.5 py-2.5 text-[13px] font-medium transition cursor-pointer ${
-                  isActive
-                    ? 'bg-indigo-950/80 text-indigo-200 border-l-2 border-indigo-500 font-semibold'
-                    : 'text-[#9E97B8] hover:bg-[#1B162B] hover:text-white border-l-2 border-transparent'
-                }`}
-              >
-                <span className="flex items-center gap-3">
-                  <span
-                    className={
-                      isActive ? 'text-indigo-400' : 'text-[#7D7696]'
-                    }
-                  >
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
+      {/* Navigation Links */}
+      <nav
+        className="mt-2 flex flex-1 flex-col gap-1 px-2.5"
+        aria-label="Main Navigation"
+      >
+        {NAV_ITEMS.map((item) => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelectTab(item.id)}
+              className={`flex w-full items-center justify-between rounded-r-xl px-3.5 py-2.5 text-[13px] font-medium transition cursor-pointer ${
+                isActive
+                  ? 'bg-indigo-950/80 text-indigo-200 border-l-2 border-indigo-500 font-semibold'
+                  : 'text-[#9E97B8] hover:bg-[#1B162B] hover:text-white border-l-2 border-transparent'
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <span
+                  className={isActive ? 'text-indigo-400' : 'text-[#7D7696]'}
+                >
+                  {item.icon}
                 </span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Bottom Quick Notes Launcher & Focus Mode Indicator */}
-      <div className="flex flex-col gap-2.5 p-3.5 border-t border-[#221C33]">
-        <button
-          type="button"
-          onClick={onOpenScratchpad}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#352D4D] bg-[#1B162A] px-3 py-2 text-[12px] font-medium text-[#DDD8F3] hover:bg-[#251E38] hover:text-white transition cursor-pointer"
-        >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-          </svg>
-          <span>Toggle Notes</span>
-        </button>
-
-        {/* Bottom Status Indicator */}
-        <div className="flex items-center gap-2 rounded-xl bg-[#0D0A14] border border-[#241E36] px-3 py-2.5">
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${
-              isFocusModeActive
-                ? 'bg-[#4ADE80] animate-pulse'
-                : 'bg-[#FBBF24]'
-            }`}
-          />
-          <span className="text-[11px] font-medium text-[#B8B2CC] truncate">
-            {isFocusModeActive ? 'Focus mode on' : 'Focus paused'} · Blocking{' '}
-            {blockedSitesCount} {blockedSitesCount === 1 ? 'site' : 'sites'}
-          </span>
-        </div>
-      </div>
+                <span>{item.label}</span>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
     </aside>
   );
 };

@@ -1,6 +1,12 @@
 // src/renderer/src/components/views/ProgressView.tsx
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import {
+  BuddyUnlocksModal,
+  COMPANION_PROGRESSION_DATA,
+  CompanionUnlockArtwork,
+  CompanionAccessoryVariant,
+} from './BuddyUnlocksModal';
 
 type TimeFilter = 'week' | 'month' | 'all';
 
@@ -16,174 +22,39 @@ export interface CompanionRosterUnlock {
   statusLabel: string;
   unlocked: boolean;
   accentBg: string;
-  accessory: 'base' | 'scholar' | 'glasses' | 'lofi' | 'exam';
+  accessory: CompanionAccessoryVariant;
 }
 
-export const COMPANION_LEVEL_ROSTER: ReadonlyArray<CompanionRosterUnlock> = [
-  {
-    id: 'buddy-lv1',
-    level: 1,
-    name: 'Mambo',
-    statusLabel: 'Unlocked - Starting companion',
-    unlocked: true,
-    accentBg: '#3C3173',
-    accessory: 'base',
-  },
-  {
-    id: 'buddy-lv5',
-    level: 5,
-    name: 'Scholar Mambo',
-    statusLabel: 'Unlocked - Level 5',
-    unlocked: true,
-    accentBg: '#2E4C80',
-    accessory: 'scholar',
-  },
-  {
-    id: 'buddy-lv7',
-    level: 7,
-    name: 'Round Glasses Mambo',
-    statusLabel: 'Unlocked - Level 7',
-    unlocked: true,
-    accentBg: '#4C2E85',
-    accessory: 'glasses',
-  },
-  {
-    id: 'buddy-lv8',
-    level: 8,
-    name: 'Study Night Lo-Fi',
-    statusLabel: 'Locked 🔒 - Unlocks at Level 8',
-    unlocked: false,
-    accentBg: '#1F2437',
-    accessory: 'lofi',
-  },
-  {
-    id: 'buddy-lv10',
-    level: 10,
-    name: 'Exam Week Mambo',
-    statusLabel: 'Locked 🔒 - Unlocks at Level 10',
-    unlocked: false,
-    accentBg: '#2A1E33',
-    accessory: 'exam',
-  },
-];
-
 /**
- * Renders a stylized mini vector character avatar icon for each Mambo unlock tier.
+ * Shared roster derived directly from the extensible COMPANION_PROGRESSION_DATA array.
  */
+export const COMPANION_LEVEL_ROSTER: ReadonlyArray<CompanionRosterUnlock> =
+  COMPANION_PROGRESSION_DATA.map((item) => ({
+    id: item.id,
+    level: item.levelRequired,
+    name: item.name,
+    statusLabel: item.unlocked
+      ? item.isStartingBuddy
+        ? 'Unlocked · Starting buddy'
+        : `Unlocked · Level ${item.levelRequired}`
+      : `Locked · Unlocks at Level ${item.levelRequired}`,
+    unlocked: item.unlocked,
+    accentBg: item.accentBg,
+    accessory: item.icon,
+  }));
+
 export const CompanionMiniAvatar: React.FC<{
   accessory: CompanionRosterUnlock['accessory'];
   unlocked: boolean;
   accentBg: string;
-}> = ({ accessory, unlocked, accentBg }) => {
-  return (
-    <div
-      style={{ backgroundColor: accentBg }}
-      className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-        unlocked ? 'border-[#A594F9]/60' : 'border-[#342C4C] opacity-60'
-      }`}
-    >
-      <svg
-        width="26"
-        height="26"
-        viewBox="0 0 36 36"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Head */}
-        <circle
-          cx="18"
-          cy="19"
-          r="11"
-          fill="#FFE4D6"
-          stroke="#241C3D"
-          strokeWidth="1.8"
-        />
-        {/* Hair */}
-        <path
-          d="M7 17C7 10.5 11.8 7 18 7C24.2 7 29 10.5 29 17C26.5 14.5 23.5 14 21 15.2C19 13.5 17 13.5 15 15.2C12.5 14 9.5 14.5 7 17Z"
-          fill="#3B305E"
-        />
-        {/* Eyes */}
-        <circle cx="14" cy="19.5" r="1.4" fill="#241C3D" />
-        <circle cx="22" cy="19.5" r="1.4" fill="#241C3D" />
-
-        {/* Tier-specific Accessories */}
-        {accessory === 'scholar' && (
-          /* Graduation Mortarboard Cap */
-          <g>
-            <polygon points="18,3 6,8 18,12 30,8" fill="#1E1B4B" />
-            <line
-              x1="27"
-              y1="9"
-              x2="28"
-              y2="15"
-              stroke="#FBBF24"
-              strokeWidth="1.6"
-            />
-          </g>
-        )}
-
-        {accessory === 'glasses' && (
-          /* Signature Round Glasses */
-          <g>
-            <circle
-              cx="14"
-              cy="19.5"
-              r="3.4"
-              stroke="#A594F9"
-              strokeWidth="1.5"
-            />
-            <circle
-              cx="22"
-              cy="19.5"
-              r="3.4"
-              stroke="#A594F9"
-              strokeWidth="1.5"
-            />
-            <line
-              x1="17.4"
-              y1="19.5"
-              x2="18.6"
-              y2="19.5"
-              stroke="#A594F9"
-              strokeWidth="1.5"
-            />
-          </g>
-        )}
-
-        {accessory === 'lofi' && (
-          /* Over-ear Lo-Fi Headphones */
-          <g>
-            <path
-              d="M6.5 19C6.5 11.5 11.5 6.5 18 6.5C24.5 6.5 29.5 11.5 29.5 19"
-              stroke="#60A5FA"
-              strokeWidth="2.2"
-               strokeLinecap="round"
-            />
-            <rect x="4.5" y="16" width="3.5" height="7" rx="1.7" fill="#60A5FA" />
-            <rect x="28" y="16" width="3.5" height="7" rx="1.7" fill="#60A5FA" />
-          </g>
-        )}
-
-        {accessory === 'exam' && (
-          /* Determination Headband */
-          <g>
-            <rect x="7.5" y="12.5" width="21" height="3" rx="1.5" fill="#F43F5E" />
-            <circle cx="18" cy="14" r="1.5" fill="#FFFFFF" />
-          </g>
-        )}
-
-        {/* Smile */}
-        <path
-          d="M15.5 23.5C16.5 24.8 19.5 24.8 20.5 23.5"
-          stroke="#241C3D"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
-      </svg>
-    </div>
-  );
-};
+}> = ({ accessory, unlocked, accentBg }) => (
+  <CompanionUnlockArtwork
+    icon={accessory}
+    unlocked={unlocked}
+    accentBg={accentBg}
+    size="sm"
+  />
+);
 
 const WEEKLY_DATA: Record<TimeFilter, DailyBar[]> = {
   week: [
@@ -218,6 +89,7 @@ const WEEKLY_DATA: Record<TimeFilter, DailyBar[]> = {
 export const ProgressView: React.FC = () => {
   const { sessionStats } = useApp();
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('week');
+  const [isUnlocksModalOpen, setIsUnlocksModalOpen] = useState<boolean>(false);
 
   // Editable Daily Study Goal State
   const [dailyGoalHours, setDailyGoalHours] = useState<number>(() => {
@@ -279,6 +151,8 @@ export const ProgressView: React.FC = () => {
   const totalSessionsDisplay =
     (timeFilter === 'week' ? 32 : timeFilter === 'month' ? 128 : 419) +
     sessionStats.breaksCompleted;
+
+  const previewCompanions = COMPANION_PROGRESSION_DATA.slice(0, 3);
 
   return (
     <div className="flex flex-col gap-5 p-6 text-white">
@@ -369,7 +243,7 @@ export const ProgressView: React.FC = () => {
         </div>
       </div>
 
-      {/* Weekly Bar Chart + Level / XP Unlocks Grid */}
+      {/* Weekly Bar Chart + Level / XP Companion Unlocks Card */}
       <div className="grid grid-cols-12 gap-5">
         {/* Mon-Sun Bar Chart with Editable Daily Goal */}
         <div className="col-span-7 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
@@ -383,7 +257,6 @@ export const ProgressView: React.FC = () => {
               </p>
             </div>
 
-            {/* Editable Daily Goal Pill */}
             {!isEditingGoal ? (
               <div className="flex items-center gap-1.5 rounded-xl border border-[#342C4C] bg-[#241E36] px-3 py-1.5 text-[11.5px] font-semibold text-[#C4B5FD]">
                 <span className="tabular-nums">
@@ -492,7 +365,7 @@ export const ProgressView: React.FC = () => {
           </div>
         </div>
 
-        {/* Level / XP Progress Bar & Full 5-Tier Companion Unlocks */}
+        {/* Level / XP Progress Bar & Companion Unlocks Overlay Trigger */}
         <div className="col-span-5 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -515,60 +388,58 @@ export const ProgressView: React.FC = () => {
             </p>
           </div>
 
-          {/* All 5 Level-Based Companion Unlocks with Character Icons */}
-          <div className="mt-4 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[12.5px] font-bold text-[#E2DFF0]">
-                Companion Unlocks
-              </span>
-              <span className="text-[11px] font-medium text-[#A594F9]">
-                3 / 5 Unlocked
-              </span>
-            </div>
+          {/* Preview of Recent Unlocks */}
+          <div className="my-4 flex flex-col gap-2">
+            <span className="text-[12px] font-bold text-[#E2DFF0]">
+              Earned Companions
+            </span>
 
-            {COMPANION_LEVEL_ROSTER.map((reward) => (
+            {previewCompanions.map((buddy) => (
               <div
-                key={reward.id}
-                className={`flex items-center justify-between rounded-xl border px-3 py-2 transition ${
-                  reward.unlocked
-                    ? 'border-[#322A4B] bg-[#120F1D]'
-                    : 'border-[#221C33] bg-[#0E0B17] opacity-75'
-                }`}
+                key={buddy.id}
+                className="flex items-center justify-between rounded-xl border border-[#322A4B] bg-[#120F1D] px-3 py-2"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <CompanionMiniAvatar
-                    accessory={reward.accessory}
-                    unlocked={reward.unlocked}
-                    accentBg={reward.accentBg}
+                  <CompanionUnlockArtwork
+                    icon={buddy.icon}
+                    unlocked={buddy.unlocked}
+                    accentBg={buddy.accentBg}
+                    size="sm"
                   />
                   <div className="min-w-0">
                     <p className="text-[12.5px] font-bold text-white truncate">
-                      {reward.name}
+                      {buddy.name}
                     </p>
-                    <p
-                      className={`text-[10.5px] font-medium truncate ${
-                        reward.unlocked ? 'text-[#4ADE80]' : 'text-[#8E87A8]'
-                      }`}
-                    >
-                      {reward.statusLabel}
+                    <p className="text-[10.5px] font-medium text-[#4ADE80] truncate">
+                      {buddy.isStartingBuddy
+                        ? 'Unlocked · Starting buddy'
+                        : `Unlocked · Level ${buddy.levelRequired}`}
                     </p>
                   </div>
                 </div>
-
-                <span
-                  className={`ml-2 shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                    reward.unlocked
-                      ? 'bg-[#261E42] text-[#C4B5FD]'
-                      : 'bg-[#1A1528] text-[#6E678A]'
-                  }`}
-                >
-                  Lv. {reward.level}
+                <span className="rounded-md bg-[#261E42] px-2 py-0.5 text-[10px] font-bold text-[#C4B5FD]">
+                  Lv. {buddy.levelRequired}
                 </span>
               </div>
             ))}
           </div>
+
+          {/* Primary Action Button to Open Full Unlockable Companions Overlay */}
+          <button
+            type="button"
+            onClick={() => setIsUnlocksModalOpen(true)}
+            className="w-full rounded-xl bg-[#A594F9] py-2.5 px-4 text-[13px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] active:scale-[0.99] transition cursor-pointer"
+          >
+            View all unlockable companions
+          </button>
         </div>
       </div>
+
+      {/* Extensible Companion Unlocks Modal */}
+      <BuddyUnlocksModal
+        isOpen={isUnlocksModalOpen}
+        onClose={() => setIsUnlocksModalOpen(false)}
+      />
     </div>
   );
 };

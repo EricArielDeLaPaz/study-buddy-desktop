@@ -84,7 +84,6 @@ const INITIAL_APP_RULES: AppRuleItem[] = [
 const StudyBuddyViewport: React.FC = () => {
   const {
     activeOverlay,
-    sessionStatus,
     triggerOverlay,
     dismissActiveOverlay,
     isScratchpadOpen,
@@ -94,6 +93,7 @@ const StudyBuddyViewport: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<NavTabId>('session');
+  // Strict mutual exclusivity state: true = Full Desktop App Window, false = Floating Mambo Companion Dock
   const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
   const [appRules, setAppRules] = useState<AppRuleItem[]>(INITIAL_APP_RULES);
@@ -120,11 +120,15 @@ const StudyBuddyViewport: React.FC = () => {
     [activeOverlay, dismissActiveOverlay, triggerOverlay]
   );
 
+  // Synchronize mouse capture regions when switching between Full Window mode and Companion Dock mode
   useEffect(() => {
-    if (!isDashboardVisible) {
+    if (isDashboardVisible) {
+      setInteractiveRegionHovered('floating-mascot-dock-shell', false);
+      setInteractiveRegionHovered('floating-mascot-dock', false);
+    } else {
       setInteractiveRegionHovered('main-dashboard-shell', false);
-      syncWindowClickThrough();
     }
+    syncWindowClickThrough();
   }, [isDashboardVisible, setInteractiveRegionHovered, syncWindowClickThrough]);
 
   useEffect(() => {
@@ -189,11 +193,9 @@ const StudyBuddyViewport: React.FC = () => {
     ]);
   };
 
-  const blockedSitesCount = appRules.filter((r) => r.enabled).length;
-
   return (
     <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
-      {/* 1. Main Multi-Tab Desktop Application Shell */}
+      {/* 1. EXCLUSIVE MODE A: Full Multi-Tab Study Buddy Desktop Window */}
       {isDashboardVisible && (
         <div className="fixed inset-0 z-30 flex items-center justify-center p-6 pointer-events-none">
           <div
@@ -213,14 +215,11 @@ const StudyBuddyViewport: React.FC = () => {
               activeTabLabel={TAB_LABELS[activeTab]}
             />
 
-            {/* Sidebar + Active View Body (Messages tab removed) */}
+            {/* Clean Sidebar + Active View Body */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <Sidebar
                 activeTab={activeTab}
                 onSelectTab={setActiveTab}
-                blockedSitesCount={blockedSitesCount}
-                isFocusModeActive={sessionStatus === 'focusing'}
-                onOpenScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
               />
 
               <main className="flex-1 overflow-y-auto bg-[#141020]">
@@ -245,7 +244,25 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Floating Movable Rich Notes Scratchpad */}
+      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock (Only shown when Full Window is minimized and no overlay is active) */}
+      {!isDashboardVisible && activeOverlay === null && (
+        <div
+          className="pointer-events-auto"
+          onMouseEnter={() =>
+            handleInteractiveRegionHover('floating-mascot-dock-shell', true)
+          }
+          onMouseLeave={() =>
+            handleInteractiveRegionHover('floating-mascot-dock-shell', false)
+          }
+        >
+          <FloatingMascotDock
+            isDashboardVisible={isDashboardVisible}
+            onExpandToFullWindow={() => setIsDashboardVisible(true)}
+          />
+        </div>
+      )}
+
+      {/* 3. Floating Resizable & Drag-and-Drop Rich Notes Scratchpad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -256,22 +273,6 @@ const StudyBuddyViewport: React.FC = () => {
         }
       >
         <Scratchpad />
-      </div>
-
-      {/* 3. Sole Persistent Desktop Mambo Companion Dock (Auto-hides during active overlays) */}
-      <div
-        className="pointer-events-auto"
-        onMouseEnter={() =>
-          handleInteractiveRegionHover('floating-mascot-dock-shell', true)
-        }
-        onMouseLeave={() =>
-          handleInteractiveRegionHover('floating-mascot-dock-shell', false)
-        }
-      >
-        <FloatingMascotDock
-          isDashboardVisible={isDashboardVisible}
-          onToggleDashboard={() => setIsDashboardVisible((prev) => !prev)}
-        />
       </div>
 
       {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
@@ -326,7 +327,9 @@ const StudyBuddyViewport: React.FC = () => {
                 onClick={() => setIsDashboardVisible((prev) => !prev)}
                 className="rounded-full bg-indigo-600/80 hover:bg-indigo-500 px-3 py-1 font-semibold text-white transition cursor-pointer"
               >
-                {isDashboardVisible ? 'Minimize to Dock' : 'Expand App View'}
+                {isDashboardVisible
+                  ? 'Minimize to Companion Mode'
+                  : 'Expand Full Window (⤢)'}
               </button>
 
               <button

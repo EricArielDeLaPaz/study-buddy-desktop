@@ -6,7 +6,7 @@ import { playChime } from '../../utils/audio';
 
 export interface FloatingMascotDockProps {
   isDashboardVisible: boolean;
-  onToggleDashboard: () => void;
+  onExpandToFullWindow: () => void;
 }
 
 const FRIENDLY_TIPS: ReadonlyArray<string> = [
@@ -27,12 +27,14 @@ function formatCompactClock(totalSeconds: number): string {
 
 export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
   isDashboardVisible,
-  onToggleDashboard,
+  onExpandToFullWindow,
 }) => {
   const {
     activeOverlay,
     sessionStatus,
     focusTimeRemaining,
+    isScratchpadOpen,
+    setScratchpadOpen,
     setInteractiveRegionHovered,
   } = useApp();
 
@@ -40,10 +42,10 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
   const [isTipVisible, setIsTipVisible] = useState<boolean>(false);
   const [isCelebratingClick, setIsCelebratingClick] = useState<boolean>(false);
   const [position, setPosition] = useState<{ x: number; y: number }>(() => ({
-    x: 28,
+    x: 32,
     y:
       typeof window !== 'undefined'
-        ? Math.max(100, window.innerHeight - 175)
+        ? Math.max(100, window.innerHeight - 180)
         : 540,
   }));
 
@@ -61,13 +63,13 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
     };
   }, []);
 
-  // Release hover lock and automatically hide the Mambo dock whenever an active
-  // nudge (distraction intervention) or break (hydration/bathroom) overlay triggers.
+  // Release click-through capture whenever the dock is hidden (either because
+  // the full desktop app window is open or an active overlay is showing).
   useEffect(() => {
-    if (activeOverlay !== null) {
+    if (isDashboardVisible || activeOverlay !== null) {
       setInteractiveRegionHovered('floating-mascot-dock', false);
     }
-  }, [activeOverlay, setInteractiveRegionHovered]);
+  }, [isDashboardVisible, activeOverlay, setInteractiveRegionHovered]);
 
   const handleMascotClick = useCallback(() => {
     if (hasDraggedRef.current) {
@@ -112,7 +114,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
       const nextX = Math.max(
         16,
         Math.min(
-          window.innerWidth - 220,
+          window.innerWidth - 230,
           moveEvent.clientX - dragOffsetRef.current.startX
         )
       );
@@ -136,9 +138,10 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Automatically hide/minimize the standard Mambo buddy dock during any active overlay,
-  // and restore it immediately once the overlay is dismissed.
-  if (activeOverlay !== null) {
+  // Strict Mutual Exclusivity:
+  // 1. Do not render when Full Desktop Window is visible.
+  // 2. Do not render when a CenterOverlay (hydration, bathroom, or intervention) is active.
+  if (isDashboardVisible || activeOverlay !== null) {
     return null;
   }
 
@@ -185,34 +188,58 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         </div>
       )}
 
-      {/* Sole Persistent Desktop Mambo Companion Widget */}
+      {/* Compact Floating Mambo Companion Dock */}
       <div
         onMouseDown={handleMouseDown}
         onClick={handleMascotClick}
         title="Click Mambo for a study tip, or drag to reposition"
-        className="group relative flex items-center gap-3 rounded-2xl border border-[#342D4B] bg-[#181424]/95 p-2.5 pr-11 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md transition-all duration-200 hover:border-[#534682] cursor-pointer"
+        className="group relative flex items-center gap-3 rounded-2xl border border-[#342D4B] bg-[#181424]/95 p-2.5 pr-12 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md transition-all duration-200 hover:border-[#534682] cursor-pointer"
       >
-        {/* Top-Right Expand / Toggle App Window Button (⤢ / ↗) */}
+        {/* Top-Right Expand Arrow Button (⤢) — Hides Buddy & Restores Full Desktop Window */}
         <button
           type="button"
           data-no-drag="true"
           onClick={(e) => {
             e.stopPropagation();
-            onToggleDashboard();
+            setInteractiveRegionHovered('floating-mascot-dock', false);
+            onExpandToFullWindow();
           }}
-          title={
-            isDashboardVisible
-              ? 'Shrink to floating Mambo companion only'
-              : 'Expand full Study Buddy desktop window (⤢)'
-          }
-          aria-label={
-            isDashboardVisible
-              ? 'Minimize full Study Buddy window'
-              : 'Expand full Study Buddy window'
-          }
+          title="Expand to full Study Buddy desktop window (⤢)"
+          aria-label="Expand to full Study Buddy desktop window"
           className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg border border-[#4E4187] bg-[#261E42] text-[13px] font-bold text-[#E2DFF0] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer shadow-sm"
         >
-          {isDashboardVisible ? '↙' : '⤢'}
+          ⤢
+        </button>
+
+        {/* Bottom-Right Open Scratchpad Icon Button */}
+        <button
+          type="button"
+          data-no-drag="true"
+          onClick={(e) => {
+            e.stopPropagation();
+            setScratchpadOpen(!isScratchpadOpen);
+          }}
+          title={isScratchpadOpen ? 'Hide Scratchpad Notes' : 'Open Scratchpad Notes'}
+          aria-label={isScratchpadOpen ? 'Hide Scratchpad Notes' : 'Open Scratchpad Notes'}
+          className={`absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg border transition cursor-pointer shadow-sm ${
+            isScratchpadOpen
+              ? 'border-[#A594F9] bg-[#A594F9] text-[#171329]'
+              : 'border-[#3B3354] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#32294D] hover:text-white'
+          }`}
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
         </button>
 
         <ChibiCompanion
@@ -222,7 +249,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
           className="shrink-0"
         />
 
-        <div className="flex flex-col">
+        <div className="flex flex-col pr-1">
           <div className="flex items-center gap-1.5">
             <span className="text-[13.5px] font-bold tracking-tight text-white">
               Mambo
@@ -243,7 +270,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
           </span>
 
           <span className="mt-1 text-[10px] font-medium text-[#8E87A8] group-hover:text-[#DDD8F3] transition-colors">
-            {isDashboardVisible ? 'Window open · Tap for tip' : '↗ Click ⤢ to expand app'}
+            ✨ Tap for study tip
           </span>
         </div>
       </div>

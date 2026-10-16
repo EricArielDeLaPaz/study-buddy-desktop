@@ -1,14 +1,23 @@
 // src/renderer/src/components/scratchpad/Scratchpad.tsx
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-} from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp, SCRATCHPAD_STORAGE_KEY } from '../../context/AppContext';
 
 export type NoteHierarchyType = 'title' | 'heading' | 'subheading' | 'body';
-export type NoteListType = 'none' | 'bullet' | 'numbered' | 'checklist' | 'dash';
+export type NoteListType =
+  | 'none'
+  | 'bullet'
+  | 'numbered'
+  | 'checklist'
+  | 'dash';
+export type AttachmentFlowMode = 'inline' | 'float-left' | 'float-right';
+
+export interface NoteAttachment {
+  id: string;
+  name: string;
+  dataUrl: string;
+  widthPx: number;
+  flowMode: AttachmentFlowMode;
+}
 
 export interface NoteBlock {
   id: string;
@@ -20,17 +29,10 @@ export interface NoteBlock {
   strikethrough: boolean;
   listType: NoteListType;
   checked?: boolean;
+  attachment?: NoteAttachment;
 }
 
-export interface NoteAttachment {
-  id: string;
-  name: string;
-  dataUrl: string;
-  addedAt: string;
-}
-
-const RICH_NOTES_BLOCKS_STORAGE_KEY = 'study_buddy_rich_note_blocks_v1';
-const RICH_NOTES_ATTACHMENTS_STORAGE_KEY = 'study_buddy_rich_note_attachments_v1';
+const RICH_NOTES_BLOCKS_STORAGE_KEY = 'study_buddy_rich_note_blocks_v2';
 
 const DEFAULT_NOTE_BLOCKS: NoteBlock[] = [
   {
@@ -143,17 +145,22 @@ function serializeBlocksToMarkdown(blocks: NoteBlock[]): string {
       if (blk.italic && line) line = `*${line}*`;
       if (blk.strikethrough && line) line = `~~${line}~~`;
 
-      if (blk.listType === 'bullet') return `• ${line}`;
-      if (blk.listType === 'dash') return `- ${line}`;
-      if (blk.listType === 'numbered') return `${numberedCounter}. ${line}`;
+      const attachmentMd = blk.attachment
+        ? `\n![${blk.attachment.name}](${blk.attachment.name})`
+        : '';
+
+      if (blk.listType === 'bullet') return `• ${line}${attachmentMd}`;
+      if (blk.listType === 'dash') return `- ${line}${attachmentMd}`;
+      if (blk.listType === 'numbered')
+        return `${numberedCounter}. ${line}${attachmentMd}`;
       if (blk.listType === 'checklist') {
-        return `- [${blk.checked ? 'x' : ' '}] ${line}`;
+        return `- [${blk.checked ? 'x' : ' '}] ${line}${attachmentMd}`;
       }
 
-      if (blk.hierarchy === 'title') return `# ${line}`;
-      if (blk.hierarchy === 'heading') return `## ${line}`;
-      if (blk.hierarchy === 'subheading') return `### ${line}`;
-      return line;
+      if (blk.hierarchy === 'title') return `# ${line}${attachmentMd}`;
+      if (blk.hierarchy === 'heading') return `## ${line}${attachmentMd}`;
+      if (blk.hierarchy === 'subheading') return `### ${line}${attachmentMd}`;
+      return `${line}${attachmentMd}`;
     })
     .join('\n');
 }
@@ -171,7 +178,7 @@ export const Scratchpad: React.FC = () => {
     setInteractiveRegionHovered,
   } = useApp();
 
-  // Rich Blocks State
+  // Rich Blocks State (including inline draggable attachments)
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
     try {
       const saved = localStorage.getItem(RICH_NOTES_BLOCKS_STORAGE_KEY);
@@ -182,23 +189,9 @@ export const Scratchpad: React.FC = () => {
         }
       }
     } catch {
-      // Fall back to default structured blocks
+      // Fall back to default blocks
     }
     return DEFAULT_NOTE_BLOCKS;
-  });
-
-  // Attachments State (Photos / Screenshots)
-  const [attachments, setAttachments] = useState<NoteAttachment[]>(() => {
-    try {
-      const saved = localStorage.getItem(RICH_NOTES_ATTACHMENTS_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as NoteAttachment[];
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // Ignore parse error
-    }
-    return [];
   });
 
   const [activeBlockId, setActiveBlockId] = useState<string>(
@@ -206,10 +199,25 @@ export const Scratchpad: React.FC = () => {
   );
   const [isListMenuOpen, setIsListMenuOpen] = useState<boolean>(false);
 
-  // Floating Window Coordinates
+  // Drag-and-Drop Inline Attachment State
+  const [draggedSourceBlockId, setDraggedSourceBlockId] = useState<
+    string | null
+  >(null);
+  const [dropTargetBlockId, setDropTargetBlockId] = useState<string | null>(
+    null
+  );
+
+  // Floating Window Position & Resizable Dimensions
   const [position, setPosition] = useState<{ x: number; y: number }>({
     x: 42,
     y: 52,
+  });
+  const [windowSize, setWindowSize] = useState<{
+    width: number;
+    height: number;
+  }>({
+    width: 430,
+    height: 560,
   });
 
   const dragOffsetRef = useRef<{ startX: number; startY: number } | null>(null);
@@ -220,7 +228,6 @@ export const Scratchpad: React.FC = () => {
   const activeBlock =
     blocks.find((b) => b.id === activeBlockId) ?? blocks[0];
 
-  // Close the combined list dropdown when clicking outside
   useEffect(() => {
     function handleOutsideClick(e: MouseEvent) {
       if (
@@ -238,7 +245,7 @@ export const Scratchpad: React.FC = () => {
     };
   }, [isListMenuOpen]);
 
-  // Debounced sync of blocks & attachments to localStorage and AppContext
+  // Debounced Persistence
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const markdownText = serializeBlocksToMarkdown(blocks);
@@ -257,10 +264,6 @@ export const Scratchpad: React.FC = () => {
           JSON.stringify(blocks)
         );
         localStorage.setItem(
-          RICH_NOTES_ATTACHMENTS_STORAGE_KEY,
-          JSON.stringify(attachments)
-        );
-        localStorage.setItem(
           SCRATCHPAD_STORAGE_KEY,
           JSON.stringify({
             ...scratchpad,
@@ -270,12 +273,12 @@ export const Scratchpad: React.FC = () => {
           })
         );
       } catch {
-        // Ignore storage quota errors
+        // Ignore quota errors
       }
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [blocks, attachments, scratchpad, updateScratchpadContent, updateScratchpadTitle]);
+  }, [blocks, scratchpad, updateScratchpadContent, updateScratchpadTitle]);
 
   const updateActiveBlock = (patch: Partial<NoteBlock>) => {
     if (!activeBlock) return;
@@ -302,7 +305,8 @@ export const Scratchpad: React.FC = () => {
     const nextType = activeBlock.listType === listType ? 'none' : listType;
     updateActiveBlock({
       listType: nextType,
-      checked: nextType === 'checklist' ? Boolean(activeBlock.checked) : undefined,
+      checked:
+        nextType === 'checklist' ? Boolean(activeBlock.checked) : undefined,
     });
     setIsListMenuOpen(false);
   };
@@ -340,11 +344,11 @@ export const Scratchpad: React.FC = () => {
     } else if (
       e.key === 'Backspace' &&
       blk.text === '' &&
+      !blk.attachment &&
       blocks.length > 1
     ) {
       e.preventDefault();
       if (blk.listType !== 'none') {
-        // First Backspace on empty list item converts it to normal body text
         updateActiveBlock({ listType: 'none', checked: undefined });
         return;
       }
@@ -360,6 +364,7 @@ export const Scratchpad: React.FC = () => {
     }
   };
 
+  // Upload Photo/Screenshot directly inline at the active block position
   const handleAttachmentSelected = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -374,12 +379,39 @@ export const Scratchpad: React.FC = () => {
             id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: file.name,
             dataUrl: reader.result,
-            addedAt: new Date().toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
+            widthPx: 220,
+            flowMode: 'inline',
           };
-          setAttachments((prev) => [...prev, newAttachment]);
+
+          setBlocks((prev) => {
+            const activeIndex = prev.findIndex((b) => b.id === activeBlockId);
+            const targetIndex =
+              activeIndex >= 0 ? activeIndex : prev.length - 1;
+            const currentBlk = prev[targetIndex];
+
+            // If current block has no attachment yet, attach directly to it so text flows around/with it
+            if (currentBlk && !currentBlk.attachment) {
+              return prev.map((b, i) =>
+                i === targetIndex ? { ...b, attachment: newAttachment } : b
+              );
+            }
+
+            // Otherwise insert a new inline block right below active block
+            const newBlk: NoteBlock = {
+              id: `blk-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              text: '',
+              hierarchy: 'body',
+              bold: false,
+              italic: false,
+              underline: false,
+              strikethrough: false,
+              listType: 'none',
+              attachment: newAttachment,
+            };
+            const copy = [...prev];
+            copy.splice(targetIndex + 1, 0, newBlk);
+            return copy;
+          });
         }
       };
       reader.readAsDataURL(file);
@@ -388,8 +420,171 @@ export const Scratchpad: React.FC = () => {
     e.target.value = '';
   };
 
-  const handleRemoveAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  // Drag-and-Drop Reordering of Inline Attachments between any lines/paragraphs
+  const handleAttachmentDragStart = (
+    e: React.DragEvent,
+    sourceBlockId: string
+  ) => {
+    setDraggedSourceBlockId(sourceBlockId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleBlockDragOver = (e: React.DragEvent, targetBlockId: string) => {
+    if (!draggedSourceBlockId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dropTargetBlockId !== targetBlockId) {
+      setDropTargetBlockId(targetBlockId);
+    }
+  };
+
+  const handleBlockDrop = (e: React.DragEvent, targetBlockId: string) => {
+    e.preventDefault();
+    if (!draggedSourceBlockId || draggedSourceBlockId === targetBlockId) {
+      setDraggedSourceBlockId(null);
+      setDropTargetBlockId(null);
+      return;
+    }
+
+    setBlocks((prev) => {
+      const sourceBlock = prev.find((b) => b.id === draggedSourceBlockId);
+      const movingAttachment = sourceBlock?.attachment;
+      if (!movingAttachment) return prev;
+
+      const targetBlock = prev.find((b) => b.id === targetBlockId);
+
+      // If target line doesn't have an attachment, move the attachment onto that line
+      if (targetBlock && !targetBlock.attachment) {
+        return prev
+          .map((b) => {
+            if (b.id === draggedSourceBlockId) {
+              return { ...b, attachment: undefined };
+            }
+            if (b.id === targetBlockId) {
+              return { ...b, attachment: movingAttachment };
+            }
+            return b;
+          })
+          .filter(
+            (b, idx, arr) =>
+              !(
+                b.id === draggedSourceBlockId &&
+                b.text === '' &&
+                !b.attachment &&
+                arr.length > 1
+              )
+          );
+      }
+
+      // Otherwise reorder the entire block to sit right before the target block
+      const withoutSource = prev.filter((b) => b.id !== draggedSourceBlockId);
+      const targetIdx = withoutSource.findIndex((b) => b.id === targetBlockId);
+      if (targetIdx < 0 || !sourceBlock) return prev;
+
+      const reordered = [...withoutSource];
+      reordered.splice(targetIdx, 0, sourceBlock);
+      return reordered;
+    });
+
+    setDraggedSourceBlockId(null);
+    setDropTargetBlockId(null);
+  };
+
+  // Interactive Corner Resize Handle for Inline Attachments
+  const handleStartAttachmentResize = (
+    e: React.MouseEvent,
+    blockId: string,
+    initialWidth: number
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const nextWidth = Math.max(
+        90,
+        Math.min(windowSize.width - 70, initialWidth + deltaX)
+      );
+      setBlocks((prev) =>
+        prev.map((b) =>
+          b.id === blockId && b.attachment
+            ? {
+                ...b,
+                attachment: { ...b.attachment, widthPx: nextWidth },
+              }
+            : b
+        )
+      );
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleCycleAttachmentFlow = (blockId: string) => {
+    const order: AttachmentFlowMode[] = ['inline', 'float-left', 'float-right'];
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (b.id !== blockId || !b.attachment) return b;
+        const nextFlow =
+          order[(order.indexOf(b.attachment.flowMode) + 1) % order.length];
+        return {
+          ...b,
+          attachment: { ...b.attachment, flowMode: nextFlow },
+        };
+      })
+    );
+  };
+
+  const handleRemoveAttachment = (blockId: string) => {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === blockId ? { ...b, attachment: undefined } : b
+      )
+    );
+  };
+
+  // Scratchpad Window Resize Handler (Right, Bottom, Bottom-Right Corner)
+  const handleStartWindowResize = (
+    e: React.MouseEvent,
+    direction: 'right' | 'bottom' | 'corner'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = windowSize.width;
+    const startHeight = windowSize.height;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      setWindowSize({
+        width:
+          direction === 'right' || direction === 'corner'
+            ? Math.max(340, Math.min(820, startWidth + deltaX))
+            : startWidth,
+        height:
+          direction === 'bottom' || direction === 'corner'
+            ? Math.max(360, Math.min(860, startHeight + deltaY))
+            : startHeight,
+      });
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
 
   const exportNotesAsMarkdown = useCallback(async () => {
@@ -440,7 +635,7 @@ export const Scratchpad: React.FC = () => {
       const nextX = Math.max(
         12,
         Math.min(
-          window.innerWidth - 430,
+          window.innerWidth - 180,
           moveEvent.clientX - dragOffsetRef.current.startX
         )
       );
@@ -474,10 +669,10 @@ export const Scratchpad: React.FC = () => {
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
-        width: '420px',
-        height: isScratchpadMinimized ? 'auto' : '560px',
+        width: `${windowSize.width}px`,
+        height: isScratchpadMinimized ? 'auto' : `${windowSize.height}px`,
       }}
-      className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none transition-[height] duration-200"
+      className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none"
     >
       {/* Hidden File Input for Photo / Screenshot Attachment */}
       <input
@@ -489,7 +684,7 @@ export const Scratchpad: React.FC = () => {
         className="hidden"
       />
 
-      {/* 1. HEADER: "Notes", "Cloud Synced" green pill badge, and right-aligned sync status */}
+      {/* 1. HEADER */}
       <div
         onMouseDown={handleHeaderMouseDown}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
@@ -500,7 +695,6 @@ export const Scratchpad: React.FC = () => {
             Notes
           </h2>
 
-          {/* Cloud Synced Green Pill Badge */}
           <button
             type="button"
             data-no-drag="true"
@@ -521,7 +715,6 @@ export const Scratchpad: React.FC = () => {
           </button>
         </div>
 
-        {/* Right-Aligned Sync Status & Window Controls */}
         <div
           data-no-drag="true"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -579,7 +772,7 @@ export const Scratchpad: React.FC = () => {
 
       {!isScratchpadMinimized && (
         <>
-          {/* 2. HIERARCHY ROW: Title, Heading, Subheading, Body selector pills */}
+          {/* 2. HIERARCHY ROW */}
           <div className="flex items-center justify-between border-b border-[#231D34] bg-[#171324] px-5 py-2.5">
             <div className="flex items-center gap-1.5">
               {HIERARCHY_OPTIONS.map((item) => {
@@ -611,10 +804,9 @@ export const Scratchpad: React.FC = () => {
             </button>
           </div>
 
-          {/* 3. FORMATTING TOOLBAR: B, I, U, S + Single Combined List Dropdown (≡ ⌵) */}
+          {/* 3. FORMATTING TOOLBAR */}
           <div className="flex items-center justify-between border-b border-[#231D34] bg-[#1A1528] px-5 py-2">
             <div className="flex items-center gap-1.5">
-              {/* Bold (B) */}
               <button
                 type="button"
                 onClick={() => handleToggleInlineFormat('bold')}
@@ -628,7 +820,6 @@ export const Scratchpad: React.FC = () => {
                 B
               </button>
 
-              {/* Italic (I) */}
               <button
                 type="button"
                 onClick={() => handleToggleInlineFormat('italic')}
@@ -642,7 +833,6 @@ export const Scratchpad: React.FC = () => {
                 I
               </button>
 
-              {/* Underline (U) */}
               <button
                 type="button"
                 onClick={() => handleToggleInlineFormat('underline')}
@@ -656,7 +846,6 @@ export const Scratchpad: React.FC = () => {
                 U
               </button>
 
-              {/* Strikethrough (S) */}
               <button
                 type="button"
                 onClick={() => handleToggleInlineFormat('strikethrough')}
@@ -729,15 +918,14 @@ export const Scratchpad: React.FC = () => {
                   {
                     id: resetId,
                     text: '',
-                    hierarchy: 'title',
-                    bold: true,
+                    hierarchy: 'body',
+                    bold: false,
                     italic: false,
                     underline: false,
                     strikethrough: false,
                     listType: 'none',
                   },
                 ]);
-                setAttachments([]);
                 setActiveBlockId(resetId);
               }}
               className="text-[11.5px] font-medium text-[#8E87A8] hover:text-rose-300 transition cursor-pointer"
@@ -746,7 +934,7 @@ export const Scratchpad: React.FC = () => {
             </button>
           </div>
 
-          {/* 4. CONTENT AREA: Formatted Blocks, Checklists, and Interactive Attachments */}
+          {/* 4. CONTENT AREA: Blank Lines (No Placeholder) & Inline Draggable/Resizable Attachments */}
           <div className="flex-1 px-4 py-3 flex flex-col min-h-0">
             <div className="flex-1 rounded-xl bg-[#0B0912] border border-[#241E34] p-3.5 overflow-y-auto flex flex-col gap-1.5">
               {blocks.map((blk, idx) => {
@@ -769,128 +957,175 @@ export const Scratchpad: React.FC = () => {
                   blk.bold ? 'font-bold' : '',
                   blk.italic ? 'italic' : '',
                   blk.underline ? 'underline' : '',
-                  blk.strikethrough || blk.checked ? 'line-through opacity-60' : '',
+                  blk.strikethrough || blk.checked
+                    ? 'line-through opacity-60'
+                    : '',
                 ]
                   .filter(Boolean)
                   .join(' ');
+
+                const isDropTarget =
+                  dropTargetBlockId === blk.id &&
+                  draggedSourceBlockId !== blk.id;
+
+                const att = blk.attachment;
 
                 return (
                   <div
                     key={blk.id}
                     onClick={() => setActiveBlockId(blk.id)}
-                    className={`group flex items-center gap-2 rounded-lg px-2 py-1 transition ${
-                      activeBlockId === blk.id
+                    onDragOver={(e) => handleBlockDragOver(e, blk.id)}
+                    onDrop={(e) => handleBlockDrop(e, blk.id)}
+                    className={`group relative rounded-lg px-2 py-1 transition ${
+                      isDropTarget
+                        ? 'border-t-2 border-[#A594F9] bg-[#211A36]'
+                        : activeBlockId === blk.id
                         ? 'bg-[#171326]/90'
                         : 'hover:bg-[#131020]/50'
                     }`}
                   >
-                    {/* List Prefix Indicator or Interactive Checkbox */}
-                    {blk.listType === 'bullet' && (
-                      <span className="w-4 shrink-0 text-center text-[14px] font-bold text-[#A594F9]">
-                        •
-                      </span>
-                    )}
-                    {blk.listType === 'dash' && (
-                      <span className="w-4 shrink-0 text-center text-[13px] font-bold text-[#A594F9]">
-                        −
-                      </span>
-                    )}
-                    {blk.listType === 'numbered' && (
-                      <span className="w-5 shrink-0 text-right text-[12px] font-bold tabular-nums text-[#A594F9]">
-                        {numberedListRun}.
-                      </span>
-                    )}
-                    {blk.listType === 'checklist' && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setBlocks((prev) =>
-                            prev.map((item) =>
-                              item.id === blk.id
-                                ? { ...item, checked: !item.checked }
-                                : item
-                            )
-                          );
-                        }}
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition cursor-pointer ${
-                          blk.checked
-                            ? 'border-[#4ADE80] bg-[#4ADE80] text-[#0B0912] font-bold'
-                            : 'border-[#5A5373] bg-[#141022] text-transparent hover:border-[#A594F9]'
-                        }`}
-                      >
-                        ✔
-                      </button>
-                    )}
-
-                    <input
-                      ref={(el) => {
-                        blockInputRefs.current[blk.id] = el;
-                      }}
-                      type="text"
-                      value={blk.text}
-                      onFocus={() => setActiveBlockId(blk.id)}
-                      onChange={(e) =>
-                        setBlocks((prev) =>
-                          prev.map((item) =>
-                            item.id === blk.id
-                              ? { ...item, text: e.target.value }
-                              : item
-                          )
-                        )
-                      }
-                      onKeyDown={(e) => handleBlockKeyDown(e, blk, idx)}
-                      placeholder={
-                        idx === 0
-                          ? 'Note title or topic...'
-                          : 'Type notes or press Enter for new line...'
-                      }
-                      className={`w-full bg-transparent focus:outline-none select-text placeholder-[#4B4463] ${hierarchyClasses} ${inlineClasses}`}
-                    />
-                  </div>
-                );
-              })}
-
-              {/* Interactive Attachments Section */}
-              {attachments.length > 0 && (
-                <div className="mt-3 border-t border-[#221C33] pt-3 flex flex-col gap-2">
-                  <span className="text-[11px] font-semibold text-[#8E87A8]">
-                    Attachments ({attachments.length})
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {attachments.map((att) => (
+                    {/* Inline / Floating Draggable & Resizable Attachment */}
+                    {att && (
                       <div
-                        key={att.id}
-                        className="group relative flex flex-col overflow-hidden rounded-xl border border-[#2E2744] bg-[#151120] p-1.5"
+                        draggable
+                        onDragStart={(e) =>
+                          handleAttachmentDragStart(e, blk.id)
+                        }
+                        style={{ width: `${att.widthPx}px` }}
+                        className={`relative mb-1.5 max-w-full rounded-xl border border-[#383052] bg-[#151120] p-1.5 shadow-md cursor-grab active:cursor-grabbing ${
+                          att.flowMode === 'float-left'
+                            ? 'float-left mr-3 mb-1'
+                            : att.flowMode === 'float-right'
+                            ? 'float-right ml-3 mb-1'
+                            : 'block my-1.5'
+                        }`}
                       >
                         <img
                           src={att.dataUrl}
                           alt={att.name}
-                          className="h-20 w-full rounded-lg object-cover bg-[#09070E]"
+                          draggable={false}
+                          className="w-full rounded-lg object-cover bg-[#09070E]"
                         />
-                        <div className="mt-1.5 flex items-center justify-between px-1">
-                          <span className="truncate text-[10.5px] font-medium text-[#DDD8F3]">
-                            {att.name}
+
+                        {/* Attachment Controls Bar (Drag Hint, Flow Wrap Toggle, Delete) */}
+                        <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-[#9E97B8]">
+                          <span className="truncate max-w-[110px]">
+                            ⠿ {att.name}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveAttachment(att.id)}
-                            title="Remove attachment"
-                            className="ml-1 text-[10px] text-[#8E87A8] hover:text-rose-400 cursor-pointer"
-                          >
-                            ✕
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCycleAttachmentFlow(blk.id);
+                              }}
+                              title="Cycle text wrap (Inline / Float Left / Float Right)"
+                              className="rounded bg-[#251E3A] px-1.5 py-0.5 text-[9.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
+                            >
+                              {att.flowMode === 'inline'
+                                ? 'Inline'
+                                : att.flowMode === 'float-left'
+                                ? 'Wrap L'
+                                : 'Wrap R'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveAttachment(blk.id);
+                              }}
+                              title="Remove attachment"
+                              className="px-1 text-[#8E87A8] hover:text-rose-400 cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </div>
+
+                        {/* Bottom-Right Image Resize Handle */}
+                        <div
+                          onMouseDown={(e) =>
+                            handleStartAttachmentResize(
+                              e,
+                              blk.id,
+                              att.widthPx
+                            )
+                          }
+                          title="Drag to resize image"
+                          className="absolute bottom-1 right-1 h-3.5 w-3.5 cursor-nwse-resize rounded-sm bg-[#A594F9]/80 hover:bg-[#A594F9]"
+                        />
                       </div>
-                    ))}
+                    )}
+
+                    {/* Text Input Row (Starts completely blank — no placeholder) */}
+                    <div className="flex items-center gap-2">
+                      {blk.listType === 'bullet' && (
+                        <span className="w-4 shrink-0 text-center text-[14px] font-bold text-[#A594F9]">
+                          •
+                        </span>
+                      )}
+                      {blk.listType === 'dash' && (
+                        <span className="w-4 shrink-0 text-center text-[13px] font-bold text-[#A594F9]">
+                          −
+                        </span>
+                      )}
+                      {blk.listType === 'numbered' && (
+                        <span className="w-5 shrink-0 text-right text-[12px] font-bold tabular-nums text-[#A594F9]">
+                          {numberedListRun}.
+                        </span>
+                      )}
+                      {blk.listType === 'checklist' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBlocks((prev) =>
+                              prev.map((item) =>
+                                item.id === blk.id
+                                  ? { ...item, checked: !item.checked }
+                                  : item
+                              )
+                            );
+                          }}
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition cursor-pointer ${
+                            blk.checked
+                              ? 'border-[#4ADE80] bg-[#4ADE80] text-[#0B0912] font-bold'
+                              : 'border-[#5A5373] bg-[#141022] text-transparent hover:border-[#A594F9]'
+                          }`}
+                        >
+                          ✔
+                        </button>
+                      )}
+
+                      <input
+                        ref={(el) => {
+                          blockInputRefs.current[blk.id] = el;
+                        }}
+                        type="text"
+                        value={blk.text}
+                        onFocus={() => setActiveBlockId(blk.id)}
+                        onChange={(e) =>
+                          setBlocks((prev) =>
+                            prev.map((item) =>
+                              item.id === blk.id
+                                ? { ...item, text: e.target.value }
+                                : item
+                            )
+                          )
+                        }
+                        onKeyDown={(e) => handleBlockKeyDown(e, blk, idx)}
+                        aria-label={`Note line ${idx + 1}`}
+                        className={`w-full bg-transparent focus:outline-none select-text min-h-[22px] ${hierarchyClasses} ${inlineClasses}`}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           </div>
 
-          {/* 5. FOOTER: "+ Attach (photo or screenshot)" pill button & bottom-right sync indicator */}
-          <div className="flex items-center justify-between border-t border-[#241E34] bg-[#151120] px-5 py-3">
+          {/* 5. FOOTER */}
+          <div className="relative flex items-center justify-between border-t border-[#241E34] bg-[#151120] px-5 py-3">
             <button
               type="button"
               onClick={() => attachmentInputRef.current?.click()}
@@ -900,16 +1135,38 @@ export const Scratchpad: React.FC = () => {
               <span>Attach (photo or screenshot)</span>
             </button>
 
-            <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#8E87A8]">
+            <span className="inline-flex items-center gap-1.5 pr-2 text-[11.5px] font-medium text-[#8E87A8]">
               <span
                 className={`h-2 w-2 rounded-full ${
                   isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
                 }`}
               />
-              <span>
-                {isSynced ? 'iPhone synced' : 'Saved locally'}
-              </span>
+              <span>{isSynced ? 'iPhone synced' : 'Saved locally'}</span>
             </span>
+          </div>
+
+          {/* Window Resize Handles (Right Edge, Bottom Edge, Bottom-Right Corner) */}
+          <div
+            onMouseDown={(e) => handleStartWindowResize(e, 'right')}
+            className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
+          />
+          <div
+            onMouseDown={(e) => handleStartWindowResize(e, 'bottom')}
+            className="absolute bottom-0 left-4 right-4 h-1.5 cursor-ns-resize"
+          />
+          <div
+            onMouseDown={(e) => handleStartWindowResize(e, 'corner')}
+            title="Drag to resize Notes window"
+            className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#7D7696] hover:text-[#A594F9]"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path
+                d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
           </div>
         </>
       )}
