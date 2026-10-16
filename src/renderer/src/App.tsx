@@ -5,6 +5,20 @@ import {
   useApp,
   TriggerOverlayOptions,
 } from './context/AppContext';
+import { Header } from './components/layout/Header';
+import { Sidebar, NavTabId } from './components/layout/Sidebar';
+import { SessionView } from './components/views/SessionView';
+import { RemindersView } from './components/views/RemindersView';
+import { MessagesView } from './components/views/MessagesView';
+import { ScheduleView } from './components/views/ScheduleView';
+import {
+  AppRulesView,
+  AppRuleItem,
+} from './components/views/AppRulesView';
+import { ProgressView } from './components/views/ProgressView';
+import { BuddyStudioView } from './components/views/BuddyStudioView';
+import { MarketplaceView } from './components/views/MarketplaceView';
+import { SettingsView } from './components/views/SettingsView';
 import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad } from './components/scratchpad/Scratchpad';
 import { FocusController } from './components/focus/FocusController';
@@ -15,25 +29,78 @@ import type {
   OverlayTriggerPayload,
 } from '../../preload/index.d';
 
+const TAB_LABELS: Record<NavTabId, string> = {
+  session: 'Session',
+  reminders: 'Reminders',
+  messages: 'Messages',
+  schedule: 'Schedule',
+  app_rules: 'App rules',
+  progress: 'Progress',
+  buddy: 'Buddy',
+  marketplace: 'Marketplace',
+  settings: 'Settings',
+};
+
+const INITIAL_APP_RULES: AppRuleItem[] = [
+  {
+    id: 'rule-discord',
+    targetName: 'Discord',
+    domainOrProcess: 'Discord.exe / discord.com',
+    category: 'Chat',
+    strictBlock: false,
+    enabled: true,
+  },
+  {
+    id: 'rule-youtube',
+    targetName: 'YouTube',
+    domainOrProcess: 'youtube.com',
+    category: 'Video',
+    strictBlock: false,
+    enabled: true,
+  },
+  {
+    id: 'rule-reddit',
+    targetName: 'Reddit',
+    domainOrProcess: 'reddit.com',
+    category: 'Social',
+    strictBlock: false,
+    enabled: true,
+  },
+  {
+    id: 'rule-twitter',
+    targetName: 'Twitter',
+    domainOrProcess: 'x.com / twitter.com',
+    category: 'Social',
+    strictBlock: true,
+    enabled: true,
+  },
+  {
+    id: 'rule-twitch',
+    targetName: 'Twitch',
+    domainOrProcess: 'twitch.tv',
+    category: 'Video',
+    strictBlock: false,
+    enabled: true,
+  },
+];
+
 const StudyBuddyViewport: React.FC = () => {
   const {
     activeOverlay,
+    sessionStatus,
     triggerOverlay,
     dismissActiveOverlay,
     isScratchpadOpen,
     setScratchpadOpen,
-    scratchpad,
-    toggleSyncStatus,
     setInteractiveRegionHovered,
     syncWindowClickThrough,
   } = useApp();
 
+  const [activeTab, setActiveTab] = useState<NavTabId>('session');
+  const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
+  const [appRules, setAppRules] = useState<AppRuleItem[]>(INITIAL_APP_RULES);
 
-  /**
-   * Registers hover state for an interactive UI surface and synchronizes
-   * the Electron window's OS-level click-through state.
-   */
   const handleInteractiveRegionHover = useCallback(
     (regionId: string, isHovered: boolean) => {
       setInteractiveRegionHovered(regionId, isHovered);
@@ -42,10 +109,6 @@ const StudyBuddyViewport: React.FC = () => {
     [setInteractiveRegionHovered, syncWindowClickThrough]
   );
 
-  /**
-   * Activates a requested overlay immediately and plays the corresponding
-   * synthesized Web Audio chime inside `triggerOverlay`.
-   */
   const activateOverlayImmediately = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
       if (activeOverlay !== null) {
@@ -60,10 +123,13 @@ const StudyBuddyViewport: React.FC = () => {
     [activeOverlay, dismissActiveOverlay, triggerOverlay]
   );
 
-  /**
-   * Initialize the Electron window in click-through mode (`forward: true`)
-   * and subscribe to scheduled overlay triggers from the main process.
-   */
+  useEffect(() => {
+    if (!isDashboardVisible) {
+      setInteractiveRegionHovered('main-dashboard-shell', false);
+      syncWindowClickThrough();
+    }
+  }, [isDashboardVisible, setInteractiveRegionHovered, syncWindowClickThrough]);
+
   useEffect(() => {
     syncWindowClickThrough();
 
@@ -85,7 +151,7 @@ const StudyBuddyViewport: React.FC = () => {
           });
         } else if (type === 'intervention') {
           activateOverlayImmediately('overlay_intervention', {
-            targetAppOrSite: payload?.targetAppOrSite ?? 'YouTube / Reddit',
+            targetAppOrSite: payload?.targetAppOrSite ?? 'YouTube',
             strictMode: payload?.strictMode ?? false,
             message: payload?.message,
           });
@@ -98,9 +164,92 @@ const StudyBuddyViewport: React.FC = () => {
     };
   }, [syncWindowClickThrough, activateOverlayImmediately]);
 
+  const handleToggleRuleEnabled = (id: string) => {
+    setAppRules((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
+    );
+  };
+
+  const handleToggleRuleStrict = (id: string) => {
+    setAppRules((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, strictBlock: !r.strictBlock } : r
+      )
+    );
+  };
+
+  const handleAddRule = (targetName: string, domainOrProcess: string) => {
+    setAppRules((prev) => [
+      {
+        id: `rule-${Date.now()}`,
+        targetName,
+        domainOrProcess,
+        category: 'Social',
+        strictBlock: false,
+        enabled: true,
+      },
+      ...prev,
+    ]);
+  };
+
+  const blockedSitesCount = appRules.filter((r) => r.enabled).length;
+
   return (
     <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
-      {/* 1. Floating Movable Scratchpad */}
+      {/* 1. Main Multi-Tab Desktop Application Shell */}
+      {isDashboardVisible && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center p-6 pointer-events-none">
+          <div
+            onMouseEnter={() =>
+              handleInteractiveRegionHover('main-dashboard-shell', true)
+            }
+            onMouseLeave={() =>
+              handleInteractiveRegionHover('main-dashboard-shell', false)
+            }
+            className="pointer-events-auto flex h-[690px] w-[1060px] max-w-full max-h-full flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
+          >
+            {/* Global Window Header */}
+            <Header
+              isScratchpadOpen={isScratchpadOpen}
+              onToggleScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
+              onMinimizeToCompanion={() => setIsDashboardVisible(false)}
+              activeTabLabel={TAB_LABELS[activeTab]}
+            />
+
+            {/* Sidebar + Active View Body */}
+            <div className="flex flex-1 min-h-0 overflow-hidden">
+              <Sidebar
+                activeTab={activeTab}
+                onSelectTab={setActiveTab}
+                blockedSitesCount={blockedSitesCount}
+                isFocusModeActive={sessionStatus === 'focusing'}
+                onOpenScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
+              />
+
+              <main className="flex-1 overflow-y-auto bg-[#141020]">
+                {activeTab === 'session' && <SessionView />}
+                {activeTab === 'reminders' && <RemindersView />}
+                {activeTab === 'messages' && <MessagesView />}
+                {activeTab === 'schedule' && <ScheduleView />}
+                {activeTab === 'app_rules' && (
+                  <AppRulesView
+                    rules={appRules}
+                    onToggleRuleEnabled={handleToggleRuleEnabled}
+                    onToggleRuleStrict={handleToggleRuleStrict}
+                    onAddRule={handleAddRule}
+                  />
+                )}
+                {activeTab === 'progress' && <ProgressView />}
+                {activeTab === 'buddy' && <BuddyStudioView />}
+                {activeTab === 'marketplace' && <MarketplaceView />}
+                {activeTab === 'settings' && <SettingsView />}
+              </main>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Floating Movable Scratchpad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -113,20 +262,22 @@ const StudyBuddyViewport: React.FC = () => {
         <Scratchpad />
       </div>
 
-      {/* 2. Floating Autonomous Focus Controller & Session Stats Card */}
-      <div
-        className="pointer-events-auto"
-        onMouseEnter={() =>
-          handleInteractiveRegionHover('focus-controller-shell', true)
-        }
-        onMouseLeave={() =>
-          handleInteractiveRegionHover('focus-controller-shell', false)
-        }
-      >
-        <FocusController />
-      </div>
+      {/* 3. Floating Autonomous Focus Controller (Shown when Dashboard is minimized) */}
+      {!isDashboardVisible && (
+        <div
+          className="pointer-events-auto"
+          onMouseEnter={() =>
+            handleInteractiveRegionHover('focus-controller-shell', true)
+          }
+          onMouseLeave={() =>
+            handleInteractiveRegionHover('focus-controller-shell', false)
+          }
+        >
+          <FocusController />
+        </div>
+      )}
 
-      {/* 3. Persistent Mini Companion Floating Dock (Visible when no CenterOverlay is active) */}
+      {/* 4. Persistent Mini Companion Floating Dock (with Expand Arrow Button when minimized) */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -136,10 +287,13 @@ const StudyBuddyViewport: React.FC = () => {
           handleInteractiveRegionHover('floating-mascot-dock-shell', false)
         }
       >
-        <FloatingMascotDock />
+        <FloatingMascotDock
+          isDashboardMinimized={!isDashboardVisible}
+          onRestoreDashboard={() => setIsDashboardVisible(true)}
+        />
       </div>
 
-      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {/* 5. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
       {activeOverlay !== null && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none transition-opacity duration-300"
@@ -159,7 +313,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Floating Collapsible Dev Trigger Bar */}
+      {/* 6. Floating Collapsible Dev Trigger Bar */}
       <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 pointer-events-none">
         <div
           onMouseEnter={() =>
@@ -170,15 +324,9 @@ const StudyBuddyViewport: React.FC = () => {
           }
           className="bg-zinc-900/90 border border-zinc-700 text-white rounded-full px-4 py-2 text-xs flex items-center gap-2 shadow-2xl pointer-events-auto backdrop-blur-md transition-all duration-200"
         >
-          {/* Collapse / Expand Pill Toggle */}
           <button
             type="button"
             onClick={() => setIsDevBarCollapsed((prev) => !prev)}
-            title={
-              isDevBarCollapsed
-                ? 'Expand Dev Trigger Bar'
-                : 'Collapse Dev Trigger Bar'
-            }
             className="flex items-center gap-1.5 font-semibold text-violet-300 hover:text-violet-200 transition cursor-pointer pr-1"
           >
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -192,7 +340,14 @@ const StudyBuddyViewport: React.FC = () => {
             <>
               <span className="h-3.5 w-[1px] bg-zinc-700" />
 
-              {/* Action 1: Trigger Hydration (5:00) */}
+              <button
+                type="button"
+                onClick={() => setIsDashboardVisible((prev) => !prev)}
+                className="rounded-full bg-indigo-600/80 hover:bg-indigo-500 px-3 py-1 font-semibold text-white transition cursor-pointer"
+              >
+                {isDashboardVisible ? 'Minimize to Dock' : 'Expand App View'}
+              </button>
+
               <button
                 type="button"
                 onClick={() =>
@@ -200,16 +355,11 @@ const StudyBuddyViewport: React.FC = () => {
                     durationSeconds: 300,
                   })
                 }
-                className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
-                  activeOverlay?.kind === 'overlay_hydration'
-                    ? 'bg-violet-500 text-zinc-950 font-semibold'
-                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100'
-                }`}
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-zinc-100 transition cursor-pointer"
               >
-                Trigger Hydration
+                Hydration (5:00)
               </button>
 
-              {/* Action 2: Trigger Bathroom (10:00) */}
               <button
                 type="button"
                 onClick={() =>
@@ -217,33 +367,47 @@ const StudyBuddyViewport: React.FC = () => {
                     durationSeconds: 600,
                   })
                 }
-                className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
-                  activeOverlay?.kind === 'overlay_bathroom'
-                    ? 'bg-violet-500 text-zinc-950 font-semibold'
-                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100'
-                }`}
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-zinc-100 transition cursor-pointer"
               >
-                Trigger Bathroom
+                Bathroom (10:00)
               </button>
 
-              {/* Action 3: Trigger Alert ("YouTube / Reddit") */}
               <button
                 type="button"
                 onClick={() =>
                   activateOverlayImmediately('overlay_intervention', {
-                    targetAppOrSite: 'YouTube / Reddit',
+                    targetAppOrSite: 'YouTube',
                   })
                 }
-                className={`rounded-full px-3 py-1 font-medium transition cursor-pointer ${
-                  activeOverlay?.kind === 'overlay_intervention'
-                    ? 'bg-violet-500 text-zinc-950 font-semibold'
-                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100'
-                }`}
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-amber-200 transition cursor-pointer"
               >
-                Trigger Alert
+                Nudge: YouTube
               </button>
 
-              {/* Action 4: Dismiss Overlay */}
+              <button
+                type="button"
+                onClick={() =>
+                  activateOverlayImmediately('overlay_intervention', {
+                    targetAppOrSite: 'Reddit',
+                  })
+                }
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-amber-200 transition cursor-pointer"
+              >
+                Nudge: Reddit
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  activateOverlayImmediately('overlay_intervention', {
+                    targetAppOrSite: 'Discord',
+                  })
+                }
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-amber-200 transition cursor-pointer"
+              >
+                Nudge: Discord
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -257,27 +421,7 @@ const StudyBuddyViewport: React.FC = () => {
                     : 'bg-zinc-800/40 text-zinc-500 cursor-not-allowed'
                 }`}
               >
-                Dismiss Overlay
-              </button>
-
-              <span className="h-3.5 w-[1px] bg-zinc-700" />
-
-              {/* Quick Scratchpad & Sync State Toggles */}
-              <button
-                type="button"
-                onClick={() => setScratchpadOpen(!isScratchpadOpen)}
-                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-zinc-200 transition cursor-pointer"
-              >
-                {isScratchpadOpen ? 'Hide Notes' : 'Show Notes'}
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleSyncStatus}
-                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-2.5 py-1 font-medium text-zinc-300 transition cursor-pointer"
-                title="Toggle Cloud Synced / Offline state"
-              >
-                {scratchpad.syncStatus === 'synced' ? '● Synced' : '● Offline'}
+                Dismiss
               </button>
             </>
           )}
