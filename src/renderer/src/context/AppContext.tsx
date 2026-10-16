@@ -27,13 +27,21 @@ const DEFAULT_SCRATCHPAD_TEXT = `Chapter 4 – Cell respiration
 TODO: review flashcards before the quiz at 4pm.
 Ask Mambo for a break after 25 min.`;
 
-interface TriggerOverlayOptions {
+export interface TriggerOverlayOptions {
   targetAppOrSite?: string;
   durationSeconds?: number;
   strictMode?: boolean;
+  message?: string;
 }
 
-interface AppContextValue {
+export type OverlayDismissReason =
+  | 'completed_hydration'
+  | 'completed_bathroom'
+  | 'keep_open'
+  | 'close_target'
+  | 'expired';
+
+export interface AppContextValue {
   // Buddy Idle/Active Animation Slot
   currentAnimationSlot: AnimationSlotId;
   setCurrentAnimationSlot: (slot: AnimationSlotId) => void;
@@ -47,14 +55,7 @@ interface AppContextValue {
   activeOverlay: OverlayState | null;
   overlayQueue: OverlayState[];
   triggerOverlay: (kind: OverlayKind, options?: TriggerOverlayOptions) => void;
-  dismissActiveOverlay: (
-    reason?:
-      | 'completed_hydration'
-      | 'completed_bathroom'
-      | 'keep_open'
-      | 'close_target'
-      | 'expired'
-  ) => void;
+  dismissActiveOverlay: (reason?: OverlayDismissReason) => void;
   extendActiveOverlayTimer: (additionalSeconds: number) => void;
 
   // Scratchpad State & Actions
@@ -72,9 +73,10 @@ interface AppContextValue {
 
   // Dynamic Mouse Click-Through Region Tracking
   setInteractiveRegionHovered: (regionId: string, hovered: boolean) => void;
+  syncWindowClickThrough: () => void;
 }
 
-const AppContext = createContext<AppContextValue | undefined>(undefined);
+export const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 function createOverlayPayload(
   kind: OverlayKind,
@@ -90,7 +92,9 @@ function createOverlayPayload(
         isActive: true,
         animationSlot: 'reminder_drinking_water',
         buddyName: 'Mambo',
-        message: "Wohoo good job so far, don't forget to rehydrate!",
+        message:
+          options?.message ??
+          "Wohoo good job so far, don't forget to rehydrate!",
         remainingSeconds: options?.durationSeconds ?? 300, // 05:00
         createdAt: Date.now(),
       };
@@ -102,12 +106,12 @@ function createOverlayPayload(
         isActive: true,
         animationSlot: 'reminder_bathroom',
         buddyName: 'Mambo',
-        message: 'Bathroom Break time!',
+        message: options?.message ?? 'Bathroom Break time!',
         remainingSeconds: options?.durationSeconds ?? 600, // 10:00
         createdAt: Date.now(),
       };
 
-    case 'overlay_intervention':
+    case 'overlay_intervention': {
       const target = options?.targetAppOrSite || 'Discord';
       return {
         id,
@@ -115,21 +119,23 @@ function createOverlayPayload(
         isActive: true,
         animationSlot: 'status_nudge',
         buddyName: 'Mambo',
-        message: `No! Don't go on ${target}`,
+        message: options?.message ?? `No! Don't go on ${target}`,
         targetAppOrSite: target,
         strictMode: options?.strictMode ?? false,
         createdAt: Date.now(),
       };
+    }
   }
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  // 1. Buddy Animation Slot State
   const [currentAnimationSlot, setCurrentAnimationSlot] =
     useState<AnimationSlotId>('idle_studying');
 
-  // Focus & Reminder Timers
+  // 2. Focus & Reminder Timers State
   const [timerConfig, setTimerConfig] = useState<TimerConfig>({
     focusDurationSeconds: 25 * 60,
     hydrationIntervalSeconds: 25 * 60,
@@ -142,21 +148,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     secondsUntilBathroom: 50 * 60,
   });
 
-  // Active Overlay & Queue
+  // 3. Active Overlay & FIFO Queue State
   const [activeOverlay, setActiveOverlay] = useState<OverlayState | null>(() =>
     createOverlayPayload('overlay_hydration')
   );
   const [overlayQueue, setOverlayQueue] = useState<OverlayState[]>([]);
 
-  // Scratchpad State with LocalStorage Persistence
+  // 4. Scratchpad Note Buffer State (with LocalStorage Hydration)
   const [scratchpad, setScratchpad] = useState<ScratchpadNote>(() => {
     try {
       const saved = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved) as ScratchpadNote;
+        const parsed = JSON.parse(saved) as ScratchpadNote;
+        if (parsed && typeof parsed.content === 'string') {
+          return parsed;
+        }
       }
     } catch {
-      // Ignore storage read errors
+      // Ignore malformed storage entries and fall back to default note
     }
     return {
       id: 'default-scratchpad',
@@ -173,13 +182,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isScratchpadMinimized, setScratchpadMinimized] =
     useState<boolean>(false);
 
-  // Track which interactive regions (center overlay card, scratchpad, HUD) currently
-  // have the cursor inside them. When the set is empty, click-through is enabled.
+  // 5. Hovered Interactive Regions Set & Dynamic Click-Through Synchronization
   const hoveredRegionsRef = useRef<Set<string>>(new Set());
 
   const syncWindowClickThrough = useCallback(() => {
     const shouldCaptureMouse = hoveredRegionsRef.current.size > 0;
-    if (window.buddyAPI?.setIgnoreMouseEvents) {
+
+    if (window.electronAPI?.setIgnoreMouseEvents) {
+      window.electronAPI.setIgnoreMouseEvents(!shouldCaptureMouse, true);
+    } else if (window.buddyAPI?.setIgnoreMouseEvents) {
       window.buddyAPI.setIgnoreMouseEvents(!shouldCaptureMouse, {
         forward: true,
       });
@@ -198,7 +209,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     [syncWindowClickThrough]
   );
 
-  // Auto-save scratchpad note to localStorage
+  // Auto-save scratchpad note to localStorage whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem(SCRATCHPAD_STORAGE_KEY, JSON.stringify(scratchpad));
@@ -215,31 +226,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         if (!current) {
           return nextOverlay;
         }
-        setOverlayQueue((q) => [...q, nextOverlay]);
+        setOverlayQueue((queue) => [...queue, nextOverlay]);
         return current;
       });
     },
     []
   );
 
-  // Dismiss current overlay and advance queue if non-empty
-  const dismissActiveOverlay = useCallback(() => {
-    hoveredRegionsRef.current.delete('center-overlay');
-    syncWindowClickThrough();
+  // Dismiss current overlay and advance FIFO queue if non-empty
+  const dismissActiveOverlay = useCallback(
+    (_reason?: OverlayDismissReason) => {
+      hoveredRegionsRef.current.delete('center-overlay');
+      syncWindowClickThrough();
 
-    setOverlayQueue((currentQueue) => {
-      if (currentQueue.length > 0) {
-        const [next, ...rest] = currentQueue;
-        setActiveOverlay(next);
-        return rest;
-      } else {
-        setActiveOverlay(null);
-        return [];
-      }
-    });
-  }, [syncWindowClickThrough]);
+      setOverlayQueue((currentQueue) => {
+        if (currentQueue.length > 0) {
+          const [next, ...rest] = currentQueue;
+          setActiveOverlay(next);
+          return rest;
+        } else {
+          setActiveOverlay(null);
+          return [];
+        }
+      });
+    },
+    [syncWindowClickThrough]
+  );
 
-  // Add +30s / +1m / +5m to the active overlay countdown
+  // Extend the active overlay countdown (+30s, +1m, +5m)
   const extendActiveOverlayTimer = useCallback((additionalSeconds: number) => {
     setActiveOverlay((current) => {
       if (!current || typeof current.remainingSeconds !== 'number') {
@@ -247,7 +261,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       return {
         ...current,
-        remainingSeconds: Math.max(0, current.remainingSeconds + additionalSeconds),
+        remainingSeconds: Math.max(
+          0,
+          current.remainingSeconds + additionalSeconds
+        ),
       };
     });
   }, []);
@@ -255,7 +272,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   // 1-second Master Ticker for Focus Session & Active Overlay Countdown
   useEffect(() => {
     const interval = window.setInterval(() => {
-      // 1. Tick active overlay countdown if one is open with a timer
+      // Tick active overlay countdown if one is open with a timer
       setActiveOverlay((current) => {
         if (
           !current ||
@@ -270,7 +287,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         };
       });
 
-      // 2. Tick focus & reminder intervals when no blocking break overlay is active
+      // Tick focus & reminder intervals
       setTimerConfig((prev) => {
         if (!prev.isRunning) return prev;
 
@@ -358,6 +375,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []);
 
+  // Export Scratchpad Note as Markdown via IPC bridge (or browser Blob fallback)
   const exportScratchpadToMarkdown = useCallback(async () => {
     const safeSlug =
       scratchpad.title
@@ -366,17 +384,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         .replace(/(^-|-$)/g, '') || 'scratchpad-note';
     const filename = `${safeSlug}.md`;
 
-    // Try native Electron Save dialog first if running in Electron shell
-    if (window.buddyAPI?.exportMarkdown) {
+    // 1. Primary Stage 2 IPC Bridge: window.electronAPI.exportMarkdown(content, filename)
+    if (window.electronAPI?.exportMarkdown) {
       try {
-        await window.buddyAPI.exportMarkdown(filename, scratchpad.content);
-        return;
-      } catch {
-        // Fallback to browser anchor download below
+        const result = await window.electronAPI.exportMarkdown(
+          scratchpad.content,
+          filename
+        );
+        if (!result.canceled || result.filePath) {
+          return;
+        }
+        if (result.canceled && !result.error) {
+          return;
+        }
+      } catch (error) {
+        console.error('IPC exportMarkdown failed, falling back to Blob:', error);
       }
     }
 
-    // Standard Blob download so it works immediately in Codespaces browser preview too
+    // 2. Secondary fallback if Stage 1 buddyAPI bridge is present
+    if (window.buddyAPI?.exportMarkdown) {
+      try {
+        const result = await window.buddyAPI.exportMarkdown(
+          filename,
+          scratchpad.content
+        );
+        if (!result.canceled || result.filePath) {
+          return;
+        }
+      } catch {
+        // Continue to browser Blob download fallback
+      }
+    }
+
+    // 3. Browser Blob download fallback for web preview / Codespaces environments
     const blob = new Blob([scratchpad.content], {
       type: 'text/markdown;charset=utf-8;',
     });
@@ -431,6 +472,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         exportScratchpadToMarkdown,
         openNoteIntoScratchpad,
         setInteractiveRegionHovered,
+        syncWindowClickThrough,
       }}
     >
       {children}
@@ -438,10 +480,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
-export function useAppContext(): AppContextValue {
-  const ctx = useContext(AppContext);
-  if (!ctx) {
-    throw new Error('useAppContext must be used inside an <AppProvider>');
+export const AppContextProvider = AppProvider;
+
+export function useApp(): AppContextValue {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useApp must be used within an <AppProvider>');
   }
-  return ctx;
+  return context;
 }
+
+export const useAppContext = useApp;
+
+export default AppContext;

@@ -1,15 +1,24 @@
 // src/main/index.ts
 import { app, shell, BrowserWindow, ipcMain, screen, dialog } from 'electron';
 import { join } from 'path';
-import { writeFile, readFile } from 'fs/promises';
+import { writeFile } from 'fs/promises';
+
+export type OverlayTriggerType = 'hydration' | 'bathroom' | 'intervention';
+
+export interface OverlayTriggerPayload {
+  durationSeconds?: number;
+  targetAppOrSite?: string;
+  strictMode?: boolean;
+  message?: string;
+}
 
 let mainWindow: BrowserWindow | null = null;
 
-function createMainWindow(): void {
+function createMainWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width,
     height,
     x: 0,
@@ -29,46 +38,63 @@ function createMainWindow(): void {
     },
   });
 
-  // Keep overlay above fullscreen/normal desktop workspaces
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Float above fullscreen and standard desktop spaces
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
-  // Default to click-through with mouse move forwarding enabled so renderer
-  // can detect when the cursor enters interactive cards or the scratchpad.
-  mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  // Start in click-through mode with mouse move forwarding enabled
+  win.setIgnoreMouseEvents(true, { forward: true });
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show();
+  win.on('ready-to-show', () => {
+    win.show();
   });
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
+  });
+
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: 'deny' };
   });
 
   if (process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+    win.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+    win.loadFile(join(__dirname, '../renderer/index.html'));
   }
+
+  mainWindow = win;
+  return win;
+}
+
+/**
+ * Helper to dispatch scheduled or OS-watcher overlay events from Main to Renderer.
+ */
+export function dispatchOverlayTrigger(
+  type: OverlayTriggerType,
+  payload?: OverlayTriggerPayload
+): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('buddy:trigger-overlay', { type, payload });
 }
 
 function registerIpcHandlers(): void {
   /**
-   * Dynamic Mouse Click-Through Handler
-   * - When `ignore` is true (e.g., cursor is on the transparent/dimmed backdrop),
-   *   clicks pass through to underlying OS windows while forwarding mousemove events.
-   * - When `ignore` is false (cursor enters CenterOverlay card, Scratchpad, or HUD),
-   *   the Electron window captures mouse clicks normally.
+   * 1. Dynamic Mouse Click-Through Toggle
+   * Safely resolves the target BrowserWindow and applies:
+   * win.setIgnoreMouseEvents(ignore, { forward: forward ?? false })
    */
   ipcMain.on(
     'buddy:set-ignore-mouse-events',
-    (event, ignore: boolean, options?: { forward: boolean }) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
+    (event, ignore: boolean, forward?: boolean) => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
       if (!win || win.isDestroyed()) return;
 
       if (ignore) {
-        win.setIgnoreMouseEvents(true, { forward: options?.forward ?? true });
+        win.setIgnoreMouseEvents(true, { forward: forward ?? false });
       } else {
         win.setIgnoreMouseEvents(false);
       }
@@ -76,58 +102,54 @@ function registerIpcHandlers(): void {
   );
 
   /**
-   * Native Markdown Export Handler (Optional native save dialog fallback)
+   * 2. Native System Save Dialog for Markdown Export
+   * Receives { content, filename } from window.electronAPI.exportMarkdown(content, filename)
    */
   ipcMain.handle(
     'buddy:export-markdown',
-    async (event, payload: { filename: string; content: string }) => {
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (!win) return { canceled: true };
-
-      // Temporarily capture mouse events while native dialog is open
-      win.setIgnoreMouseEvents(false);
-
-      const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        title: 'Export Scratchpad Note',
-        defaultPath: payload.filename || 'study-notes.md',
-        filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
-      });
-
-      if (!canceled && filePath) {
-        await writeFile(filePath, payload.content, 'utf-8');
-        return { canceled: false, filePath };
+    async (
+      event,
+      payload: { content: string; filename: string }
+    ): Promise<{ canceled: boolean; filePath?: string; error?: string }> => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+      if (!win || win.isDestroyed()) {
+        return { canceled: true, error: 'Main window is unavailable' };
       }
 
-      return { canceled: true };
+      const normalizedFilename = payload.filename?.trim()
+        ? payload.filename.endsWith('.md')
+          ? payload.filename
+          : `${payload.filename}.md`
+        : 'scratchpad-notes.md';
+
+      try {
+        // Ensure window captures mouse events while the modal save dialog is active
+        win.setIgnoreMouseEvents(false);
+
+        const { canceled, filePath } = await dialog.showSaveDialog(win, {
+          title: 'Export Scratchpad Note as Markdown',
+          defaultPath: join(app.getPath('documents'), normalizedFilename),
+          buttonLabel: 'Export .md',
+          filters: [
+            { name: 'Markdown Document', extensions: ['md', 'markdown'] },
+            { name: 'Plain Text', extensions: ['txt'] },
+          ],
+        });
+
+        if (canceled || !filePath) {
+          return { canceled: true };
+        }
+
+        await writeFile(filePath, payload.content ?? '', 'utf-8');
+        return { canceled: false, filePath };
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Unknown file write error';
+        console.error('Failed to export Markdown file:', message);
+        return { canceled: true, error: message };
+      }
     }
   );
-
-  /**
-   * Native Open Note Handler
-   */
-  ipcMain.handle('buddy:open-note', async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return { canceled: true };
-
-    win.setIgnoreMouseEvents(false);
-
-    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      title: 'Open Markdown or Text Note',
-      properties: ['openFile'],
-      filters: [{ name: 'Notes', extensions: ['md', 'markdown', 'txt'] }],
-    });
-
-    if (!canceled && filePaths.length > 0) {
-      const content = await readFile(filePaths[0], 'utf-8');
-      return {
-        canceled: false,
-        filePath: filePaths[0],
-        content,
-      };
-    }
-
-    return { canceled: true };
-  });
 }
 
 app.whenReady().then(() => {
