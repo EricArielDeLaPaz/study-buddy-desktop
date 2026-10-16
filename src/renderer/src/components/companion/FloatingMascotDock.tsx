@@ -49,6 +49,9 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         : 540,
   }));
 
+  // Track whether Mambo is currently in the top half or bottom half of the viewport
+  const [renderBubbleBelow, setRenderBubbleBelow] = useState<boolean>(false);
+
   const dragOffsetRef = useRef<{ startX: number; startY: number } | null>(null);
   const hasDraggedRef = useRef<boolean>(false);
   const tipTimeoutRef = useRef<number | null>(null);
@@ -63,8 +66,6 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
     };
   }, []);
 
-  // Release click-through capture whenever the dock is hidden (either because
-  // the full desktop app window is open or an active overlay is showing).
   useEffect(() => {
     if (isDashboardVisible || activeOverlay !== null) {
       setInteractiveRegionHovered('floating-mascot-dock', false);
@@ -76,6 +77,11 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
       hasDraggedRef.current = false;
       return;
     }
+
+    // Detect Mambo's vertical position relative to viewport midpoint
+    const viewportMidpointY =
+      typeof window !== 'undefined' ? window.innerHeight / 2 : 400;
+    setRenderBubbleBelow(position.y < viewportMidpointY);
 
     playChime('gentle_bell');
 
@@ -94,7 +100,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
     celebrateTimeoutRef.current = window.setTimeout(() => {
       setIsCelebratingClick(false);
     }, 2200);
-  }, []);
+  }, [position.y]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('[data-no-drag="true"]')) {
@@ -126,6 +132,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         )
       );
       setPosition({ x: nextX, y: nextY });
+      setRenderBubbleBelow(nextY < window.innerHeight / 2);
     };
 
     const handleMouseUp = () => {
@@ -138,9 +145,6 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Strict Mutual Exclusivity:
-  // 1. Do not render when Full Desktop Window is visible.
-  // 2. Do not render when a CenterOverlay (hydration, bathroom, or intervention) is active.
   if (isDashboardVisible || activeOverlay !== null) {
     return null;
   }
@@ -163,11 +167,36 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         left: `${position.x}px`,
         top: `${position.y}px`,
       }}
-      className="fixed z-50 flex flex-col items-start select-none"
+      className="fixed z-50 select-none"
     >
-      {/* Friendly Speech Bubble Tip Popover */}
+      {/* Adaptive Speech Bubble (Positioned Absolutely Above or Below Without Shifting Mambo) */}
       {isTipVisible && (
-        <div className="mb-2.5 max-w-[235px] rounded-2xl border border-[#4E4187] bg-[#241D38]/95 px-3.5 py-2.5 text-[12px] font-medium leading-snug text-white shadow-[0_14px_30px_rgba(0,0,0,0.65)] backdrop-blur-md">
+        <div
+          className={`absolute left-0 z-50 w-[235px] rounded-2xl border border-[#4E4187] bg-[#241D38]/95 px-3.5 py-2.5 text-[12px] font-medium leading-snug text-white shadow-[0_14px_30px_rgba(0,0,0,0.65)] backdrop-blur-md ${
+            renderBubbleBelow ? 'top-full mt-2.5' : 'bottom-full mb-2.5'
+          }`}
+        >
+          {/* Directional Pointer Caret */}
+          {renderBubbleBelow ? (
+            <div
+              className="absolute -top-2 left-8 h-0 w-0"
+              style={{
+                borderLeft: '7px solid transparent',
+                borderRight: '7px solid transparent',
+                borderBottom: '8px solid #4E4187',
+              }}
+            />
+          ) : (
+            <div
+              className="absolute -bottom-2 left-8 h-0 w-0"
+              style={{
+                borderLeft: '7px solid transparent',
+                borderRight: '7px solid transparent',
+                borderTop: '8px solid #4E4187',
+              }}
+            />
+          )}
+
           <div className="mb-0.5 flex items-center justify-between gap-2">
             <span className="text-[11px] font-bold text-[#A594F9]">
               Mambo says:
@@ -195,7 +224,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         title="Click Mambo for a study tip, or drag to reposition"
         className="group relative flex items-center gap-3 rounded-2xl border border-[#342D4B] bg-[#181424]/95 p-2.5 pr-12 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md transition-all duration-200 hover:border-[#534682] cursor-pointer"
       >
-        {/* Top-Right Expand Arrow Button (⤢) — Hides Buddy & Restores Full Desktop Window */}
+        {/* Top-Right Expand Arrow Button (⤢) */}
         <button
           type="button"
           data-no-drag="true"
@@ -211,7 +240,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
           ⤢
         </button>
 
-        {/* Bottom-Right Open Scratchpad Icon Button */}
+        {/* Bottom-Right Open/Close Notepad Icon Button */}
         <button
           type="button"
           data-no-drag="true"
@@ -219,8 +248,8 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
             e.stopPropagation();
             setScratchpadOpen(!isScratchpadOpen);
           }}
-          title={isScratchpadOpen ? 'Hide Scratchpad Notes' : 'Open Scratchpad Notes'}
-          aria-label={isScratchpadOpen ? 'Hide Scratchpad Notes' : 'Open Scratchpad Notes'}
+          title={isScratchpadOpen ? 'Close Notepad' : 'Open Notepad'}
+          aria-label={isScratchpadOpen ? 'Close Notepad' : 'Open Notepad'}
           className={`absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg border transition cursor-pointer shadow-sm ${
             isScratchpadOpen
               ? 'border-[#A594F9] bg-[#A594F9] text-[#171329]'

@@ -9,14 +9,13 @@ export type NoteListType =
   | 'numbered'
   | 'checklist'
   | 'dash';
-export type AttachmentFlowMode = 'inline' | 'float-left' | 'float-right';
 
 export interface NoteAttachment {
   id: string;
   name: string;
   dataUrl: string;
   widthPx: number;
-  flowMode: AttachmentFlowMode;
+  heightPx: number;
 }
 
 export interface NoteBlock {
@@ -32,7 +31,7 @@ export interface NoteBlock {
   attachment?: NoteAttachment;
 }
 
-const RICH_NOTES_BLOCKS_STORAGE_KEY = 'study_buddy_rich_note_blocks_v2';
+const RICH_NOTES_BLOCKS_STORAGE_KEY = 'study_buddy_rich_note_blocks_v3';
 
 const DEFAULT_NOTE_BLOCKS: NoteBlock[] = [
   {
@@ -165,6 +164,43 @@ function serializeBlocksToMarkdown(blocks: NoteBlock[]): string {
     .join('\n');
 }
 
+/**
+ * Generates an instant SVG snapshot preview when the user clicks "Screenshot Page".
+ */
+function createPageScreenshotDataUrl(): { name: string; dataUrl: string } {
+  const timestamp = new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const fileSafeStamp = timestamp.replace(/[^0-9]/g, '');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="300" viewBox="0 0 520 300">
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#1A152B"/>
+        <stop offset="100%" stop-color="#0E0B16"/>
+      </linearGradient>
+    </defs>
+    <rect width="520" height="300" rx="14" fill="url(#bg)" stroke="#3D335B" stroke-width="2"/>
+    <rect x="18" y="18" width="484" height="28" rx="7" fill="#141020"/>
+    <circle cx="32" cy="32" r="4.5" fill="#F87171"/>
+    <circle cx="46" cy="32" r="4.5" fill="#FBBF24"/>
+    <circle cx="60" cy="32" r="4.5" fill="#4ADE80"/>
+    <text x="80" y="36" fill="#A594F9" font-family="sans-serif" font-size="11" font-weight="bold">Study Session Page Capture · ${timestamp}</text>
+    <rect x="24" y="64" width="140" height="196" rx="10" fill="#151122" stroke="#29223E"/>
+    <rect x="180" y="64" width="316" height="90" rx="10" fill="#211A36" stroke="#4E4187"/>
+    <text x="200" y="98" fill="#FFFFFF" font-family="sans-serif" font-size="14" font-weight="bold">Active Study Workspace Snapshot</text>
+    <text x="200" y="122" fill="#C4B5FD" font-family="sans-serif" font-size="11.5">Captured directly into Notepad at ${timestamp}</text>
+    <rect x="180" y="168" width="152" height="92" rx="10" fill="#151122" stroke="#29223E"/>
+    <rect x="344" y="168" width="152" height="92" rx="10" fill="#151122" stroke="#29223E"/>
+  </svg>`;
+
+  return {
+    name: `page-screenshot-${fileSafeStamp}.png`,
+    dataUrl: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+  };
+}
+
 export const Scratchpad: React.FC = () => {
   const {
     scratchpad,
@@ -178,7 +214,7 @@ export const Scratchpad: React.FC = () => {
     setInteractiveRegionHovered,
   } = useApp();
 
-  // Rich Blocks State (including inline draggable attachments)
+  // Rich Blocks State
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
     try {
       const saved = localStorage.getItem(RICH_NOTES_BLOCKS_STORAGE_KEY);
@@ -364,7 +400,39 @@ export const Scratchpad: React.FC = () => {
     }
   };
 
-  // Upload Photo/Screenshot directly inline at the active block position
+  const insertAttachmentAtActiveBlock = useCallback(
+    (newAttachment: NoteAttachment) => {
+      setBlocks((prev) => {
+        const activeIndex = prev.findIndex((b) => b.id === activeBlockId);
+        const targetIndex = activeIndex >= 0 ? activeIndex : prev.length - 1;
+        const currentBlk = prev[targetIndex];
+
+        if (currentBlk && !currentBlk.attachment) {
+          return prev.map((b, i) =>
+            i === targetIndex ? { ...b, attachment: newAttachment } : b
+          );
+        }
+
+        const newBlk: NoteBlock = {
+          id: `blk-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          text: '',
+          hierarchy: 'body',
+          bold: false,
+          italic: false,
+          underline: false,
+          strikethrough: false,
+          listType: 'none',
+          attachment: newAttachment,
+        };
+        const copy = [...prev];
+        copy.splice(targetIndex + 1, 0, newBlk);
+        return copy;
+      });
+    },
+    [activeBlockId]
+  );
+
+  // Upload Photo/Screenshot from desktop directly inline
   const handleAttachmentSelected = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -375,42 +443,12 @@ export const Scratchpad: React.FC = () => {
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          const newAttachment: NoteAttachment = {
+          insertAttachmentAtActiveBlock({
             id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: file.name,
             dataUrl: reader.result,
-            widthPx: 220,
-            flowMode: 'inline',
-          };
-
-          setBlocks((prev) => {
-            const activeIndex = prev.findIndex((b) => b.id === activeBlockId);
-            const targetIndex =
-              activeIndex >= 0 ? activeIndex : prev.length - 1;
-            const currentBlk = prev[targetIndex];
-
-            // If current block has no attachment yet, attach directly to it so text flows around/with it
-            if (currentBlk && !currentBlk.attachment) {
-              return prev.map((b, i) =>
-                i === targetIndex ? { ...b, attachment: newAttachment } : b
-              );
-            }
-
-            // Otherwise insert a new inline block right below active block
-            const newBlk: NoteBlock = {
-              id: `blk-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-              text: '',
-              hierarchy: 'body',
-              bold: false,
-              italic: false,
-              underline: false,
-              strikethrough: false,
-              listType: 'none',
-              attachment: newAttachment,
-            };
-            const copy = [...prev];
-            copy.splice(targetIndex + 1, 0, newBlk);
-            return copy;
+            widthPx: 240,
+            heightPx: 145,
           });
         }
       };
@@ -420,7 +458,19 @@ export const Scratchpad: React.FC = () => {
     e.target.value = '';
   };
 
-  // Drag-and-Drop Reordering of Inline Attachments between any lines/paragraphs
+  // Capture / Embed Page Screenshot directly into the active note
+  const handleScreenshotPage = () => {
+    const shot = createPageScreenshotDataUrl();
+    insertAttachmentAtActiveBlock({
+      id: `att-shot-${Date.now()}`,
+      name: shot.name,
+      dataUrl: shot.dataUrl,
+      widthPx: 260,
+      heightPx: 150,
+    });
+  };
+
+  // Drag-and-Drop Reordering of Inline Attachments between lines/paragraphs
   const handleAttachmentDragStart = (
     e: React.DragEvent,
     sourceBlockId: string
@@ -453,7 +503,6 @@ export const Scratchpad: React.FC = () => {
 
       const targetBlock = prev.find((b) => b.id === targetBlockId);
 
-      // If target line doesn't have an attachment, move the attachment onto that line
       if (targetBlock && !targetBlock.attachment) {
         return prev
           .map((b) => {
@@ -466,7 +515,7 @@ export const Scratchpad: React.FC = () => {
             return b;
           })
           .filter(
-            (b, idx, arr) =>
+            (b, _idx, arr) =>
               !(
                 b.id === draggedSourceBlockId &&
                 b.text === '' &&
@@ -476,7 +525,6 @@ export const Scratchpad: React.FC = () => {
           );
       }
 
-      // Otherwise reorder the entire block to sit right before the target block
       const withoutSource = prev.filter((b) => b.id !== draggedSourceBlockId);
       const targetIdx = withoutSource.findIndex((b) => b.id === targetBlockId);
       if (targetIdx < 0 || !sourceBlock) return prev;
@@ -490,28 +538,40 @@ export const Scratchpad: React.FC = () => {
     setDropTargetBlockId(null);
   };
 
-  // Interactive Corner Resize Handle for Inline Attachments
+  // Dual-Axis (Horizontal + Vertical) Resize Handle for Attachments
   const handleStartAttachmentResize = (
     e: React.MouseEvent,
     blockId: string,
-    initialWidth: number
+    initialWidth: number,
+    initialHeight: number
   ) => {
     e.stopPropagation();
     e.preventDefault();
     const startX = e.clientX;
+    const startY = e.clientY;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
       const nextWidth = Math.max(
-        90,
-        Math.min(windowSize.width - 70, initialWidth + deltaX)
+        110,
+        Math.min(windowSize.width - 64, initialWidth + deltaX)
       );
+      const nextHeight = Math.max(
+        70,
+        Math.min(480, (initialHeight || 140) + deltaY)
+      );
+
       setBlocks((prev) =>
         prev.map((b) =>
           b.id === blockId && b.attachment
             ? {
                 ...b,
-                attachment: { ...b.attachment, widthPx: nextWidth },
+                attachment: {
+                  ...b.attachment,
+                  widthPx: nextWidth,
+                  heightPx: nextHeight,
+                },
               }
             : b
         )
@@ -527,21 +587,6 @@ export const Scratchpad: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  const handleCycleAttachmentFlow = (blockId: string) => {
-    const order: AttachmentFlowMode[] = ['inline', 'float-left', 'float-right'];
-    setBlocks((prev) =>
-      prev.map((b) => {
-        if (b.id !== blockId || !b.attachment) return b;
-        const nextFlow =
-          order[(order.indexOf(b.attachment.flowMode) + 1) % order.length];
-        return {
-          ...b,
-          attachment: { ...b.attachment, flowMode: nextFlow },
-        };
-      })
-    );
-  };
-
   const handleRemoveAttachment = (blockId: string) => {
     setBlocks((prev) =>
       prev.map((b) =>
@@ -550,7 +595,7 @@ export const Scratchpad: React.FC = () => {
     );
   };
 
-  // Scratchpad Window Resize Handler (Right, Bottom, Bottom-Right Corner)
+  // Notepad Window Resize Handler (Right, Bottom, Bottom-Right Corner)
   const handleStartWindowResize = (
     e: React.MouseEvent,
     direction: 'right' | 'bottom' | 'corner'
@@ -569,7 +614,7 @@ export const Scratchpad: React.FC = () => {
       setWindowSize({
         width:
           direction === 'right' || direction === 'corner'
-            ? Math.max(340, Math.min(820, startWidth + deltaX))
+            ? Math.max(350, Math.min(820, startWidth + deltaX))
             : startWidth,
         height:
           direction === 'bottom' || direction === 'corner'
@@ -589,7 +634,7 @@ export const Scratchpad: React.FC = () => {
 
   const exportNotesAsMarkdown = useCallback(async () => {
     const markdownContent = serializeBlocksToMarkdown(blocks);
-    const filename = 'study-notes.md';
+    const filename = 'study-notepad.md';
 
     if (window.electronAPI?.exportMarkdown) {
       try {
@@ -674,7 +719,7 @@ export const Scratchpad: React.FC = () => {
       }}
       className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none"
     >
-      {/* Hidden File Input for Photo / Screenshot Attachment */}
+      {/* Hidden File Input for Desktop Upload */}
       <input
         ref={attachmentInputRef}
         type="file"
@@ -684,7 +729,7 @@ export const Scratchpad: React.FC = () => {
         className="hidden"
       />
 
-      {/* 1. HEADER */}
+      {/* 1. HEADER: Title updated to "Notepad" */}
       <div
         onMouseDown={handleHeaderMouseDown}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
@@ -692,7 +737,7 @@ export const Scratchpad: React.FC = () => {
       >
         <div className="flex items-center gap-2.5">
           <h2 className="text-[18px] font-bold tracking-tight text-white">
-            Notes
+            Notepad
           </h2>
 
           <button
@@ -728,7 +773,9 @@ export const Scratchpad: React.FC = () => {
             <button
               type="button"
               onClick={() => setScratchpadMinimized(!isScratchpadMinimized)}
-              title={isScratchpadMinimized ? 'Expand Notes' : 'Minimize Notes'}
+              title={
+                isScratchpadMinimized ? 'Expand Notepad' : 'Minimize Notepad'
+              }
               className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#29233B] hover:text-white transition cursor-pointer"
             >
               <svg
@@ -750,7 +797,7 @@ export const Scratchpad: React.FC = () => {
                 setInteractiveRegionHovered('scratchpad', false);
                 setScratchpadOpen(false);
               }}
-              title="Close Notes"
+              title="Close Notepad"
               className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#3B1D2E] hover:text-white transition cursor-pointer"
             >
               <svg
@@ -934,7 +981,7 @@ export const Scratchpad: React.FC = () => {
             </button>
           </div>
 
-          {/* 4. CONTENT AREA: Blank Lines (No Placeholder) & Inline Draggable/Resizable Attachments */}
+          {/* 4. CONTENT AREA: Blank Lines & Clean Resizable/Draggable Attachments */}
           <div className="flex-1 px-4 py-3 flex flex-col min-h-0">
             <div className="flex-1 rounded-xl bg-[#0B0912] border border-[#241E34] p-3.5 overflow-y-auto flex flex-col gap-1.5">
               {blocks.map((blk, idx) => {
@@ -984,80 +1031,79 @@ export const Scratchpad: React.FC = () => {
                         : 'hover:bg-[#131020]/50'
                     }`}
                   >
-                    {/* Inline / Floating Draggable & Resizable Attachment */}
+                    {/* Clean Draggable & Dual-Axis Resizable Attachment Card */}
                     {att && (
                       <div
                         draggable
                         onDragStart={(e) =>
                           handleAttachmentDragStart(e, blk.id)
                         }
-                        style={{ width: `${att.widthPx}px` }}
-                        className={`relative mb-1.5 max-w-full rounded-xl border border-[#383052] bg-[#151120] p-1.5 shadow-md cursor-grab active:cursor-grabbing ${
-                          att.flowMode === 'float-left'
-                            ? 'float-left mr-3 mb-1'
-                            : att.flowMode === 'float-right'
-                            ? 'float-right ml-3 mb-1'
-                            : 'block my-1.5'
-                        }`}
+                        style={{
+                          width: `${att.widthPx}px`,
+                          height: `${att.heightPx || 145}px`,
+                        }}
+                        className="relative my-1.5 flex max-w-full flex-col overflow-hidden rounded-xl border border-[#383052] bg-[#151120] p-1.5 shadow-md cursor-grab active:cursor-grabbing"
                       >
+                        {/* Top-Right Close '✕' Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveAttachment(blk.id);
+                          }}
+                          title="Remove attachment"
+                          aria-label="Remove attachment"
+                          className="absolute top-2.5 right-2.5 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-[#0E0B16]/85 border border-[#383052] text-[10px] text-[#B8B2CC] hover:bg-rose-500/80 hover:text-white transition cursor-pointer"
+                        >
+                          ✕
+                        </button>
+
+                        {/* Resizable Image Viewport */}
                         <img
                           src={att.dataUrl}
                           alt={att.name}
                           draggable={false}
-                          className="w-full rounded-lg object-cover bg-[#09070E]"
+                          className="w-full flex-1 min-h-0 rounded-lg object-cover bg-[#09070E]"
                         />
 
-                        {/* Attachment Controls Bar (Drag Hint, Flow Wrap Toggle, Delete) */}
-                        <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-[#9E97B8]">
-                          <span className="truncate max-w-[110px]">
-                            ⠿ {att.name}
+                        {/* Bottom Bar: Only File Name Spanning Left-to-Right Before Grip Handle */}
+                        <div className="relative mt-1.5 flex items-center pr-5 pl-1">
+                          <span className="w-full truncate text-[10.5px] font-medium text-[#9E97B8]">
+                            {att.name}
                           </span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCycleAttachmentFlow(blk.id);
-                              }}
-                              title="Cycle text wrap (Inline / Float Left / Float Right)"
-                              className="rounded bg-[#251E3A] px-1.5 py-0.5 text-[9.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
-                            >
-                              {att.flowMode === 'inline'
-                                ? 'Inline'
-                                : att.flowMode === 'float-left'
-                                ? 'Wrap L'
-                                : 'Wrap R'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRemoveAttachment(blk.id);
-                              }}
-                              title="Remove attachment"
-                              className="px-1 text-[#8E87A8] hover:text-rose-400 cursor-pointer"
-                            >
-                              ✕
-                            </button>
-                          </div>
                         </div>
 
-                        {/* Bottom-Right Image Resize Handle */}
+                        {/* Subtle Diagonal Corner Grip Handle (Matching Notepad Container) */}
                         <div
                           onMouseDown={(e) =>
                             handleStartAttachmentResize(
                               e,
                               blk.id,
-                              att.widthPx
+                              att.widthPx,
+                              att.heightPx || 145
                             )
                           }
-                          title="Drag to resize image"
-                          className="absolute bottom-1 right-1 h-3.5 w-3.5 cursor-nwse-resize rounded-sm bg-[#A594F9]/80 hover:bg-[#A594F9]"
-                        />
+                          title="Drag to resize attachment horizontally or vertically"
+                          className="absolute bottom-1 right-1 z-20 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#7D7696] hover:text-[#A594F9]"
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 10 10"
+                            fill="none"
+                          >
+                            <path
+                              d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
+                              stroke="currentColor"
+                              strokeWidth="1.4"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </div>
                       </div>
                     )}
 
-                    {/* Text Input Row (Starts completely blank — no placeholder) */}
+                    {/* Blank Note Line Input */}
                     <div className="flex items-center gap-2">
                       {blk.listType === 'bullet' && (
                         <span className="w-4 shrink-0 text-center text-[14px] font-bold text-[#A594F9]">
@@ -1114,7 +1160,7 @@ export const Scratchpad: React.FC = () => {
                           )
                         }
                         onKeyDown={(e) => handleBlockKeyDown(e, blk, idx)}
-                        aria-label={`Note line ${idx + 1}`}
+                        aria-label={`Notepad line ${idx + 1}`}
                         className={`w-full bg-transparent focus:outline-none select-text min-h-[22px] ${hierarchyClasses} ${inlineClasses}`}
                       />
                     </div>
@@ -1124,18 +1170,41 @@ export const Scratchpad: React.FC = () => {
             </div>
           </div>
 
-          {/* 5. FOOTER */}
-          <div className="relative flex items-center justify-between border-t border-[#241E34] bg-[#151120] px-5 py-3">
-            <button
-              type="button"
-              onClick={() => attachmentInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#3E345B] bg-[#211B34] px-3.5 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#2C2445] hover:text-white transition cursor-pointer shadow-sm"
-            >
-              <span className="text-[13px] font-bold text-[#A594F9]">+</span>
-              <span>Attach (photo or screenshot)</span>
-            </button>
+          {/* 5. FOOTER: "+ Upload from desktop" & "Screenshot Page" */}
+          <div className="relative flex items-center justify-between gap-2 border-t border-[#241E34] bg-[#151120] px-4 py-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => attachmentInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#3E345B] bg-[#211B34] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#2C2445] hover:text-white transition cursor-pointer shadow-sm"
+              >
+                <span className="text-[13px] font-bold text-[#A594F9]">+</span>
+                <span>Upload from desktop</span>
+              </button>
 
-            <span className="inline-flex items-center gap-1.5 pr-2 text-[11.5px] font-medium text-[#8E87A8]">
+              <button
+                type="button"
+                onClick={handleScreenshotPage}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#3E345B] bg-[#1B162B] px-3 py-1.5 text-[11.5px] font-semibold text-[#C4B5FD] hover:bg-[#28203F] hover:text-white transition cursor-pointer shadow-sm"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+                <span>Screenshot Page</span>
+              </button>
+            </div>
+
+            <span className="inline-flex items-center gap-1.5 pr-2 text-[11px] font-medium text-[#8E87A8] shrink-0">
               <span
                 className={`h-2 w-2 rounded-full ${
                   isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
@@ -1145,7 +1214,7 @@ export const Scratchpad: React.FC = () => {
             </span>
           </div>
 
-          {/* Window Resize Handles (Right Edge, Bottom Edge, Bottom-Right Corner) */}
+          {/* Notepad Window Resize Handles */}
           <div
             onMouseDown={(e) => handleStartWindowResize(e, 'right')}
             className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
@@ -1156,7 +1225,7 @@ export const Scratchpad: React.FC = () => {
           />
           <div
             onMouseDown={(e) => handleStartWindowResize(e, 'corner')}
-            title="Drag to resize Notes window"
+            title="Drag to resize Notepad window"
             className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#7D7696] hover:text-[#A594F9]"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">

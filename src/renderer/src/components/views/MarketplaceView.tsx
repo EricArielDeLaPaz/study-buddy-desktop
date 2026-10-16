@@ -8,17 +8,23 @@ import {
   ChibiCompanion,
   ChibiCompanionMode,
 } from '../companion/ChibiCompanion';
+import {
+  loadUserBuddyPresets,
+  USER_BUDDY_PRESETS_STORAGE_KEY,
+  UserBuddyPreset,
+} from './BuddyStudioView';
 import { playChime } from '../../utils/audio';
 
-type MarketplaceFilter = 'All' | 'Study' | 'Calm' | 'Fun' | 'Minimal';
+type MarketplaceFilter = 'All' | 'Study' | 'Calm' | 'Fun' | 'Minimal' | 'Warm';
 type PresetApplyMode = 'create_new' | 'override_current';
 type AnimationCategoryKey = 'Idle' | 'Reminder' | 'Success' | 'Status';
+type ShareableTag = 'Study' | 'Calm' | 'Fun' | 'Minimal' | 'Warm';
 
 interface CommunityPreset {
   id: string;
   title: string;
   author: string;
-  filterGroup: Exclude<MarketplaceFilter, 'All'>;
+  tags: ShareableTag[];
   description: string;
   downloads: string;
   previewMode: ChibiCompanionMode;
@@ -29,7 +35,7 @@ const INITIAL_COMMUNITY_PRESETS: CommunityPreset[] = [
     id: 'preset-cozy-library',
     title: 'Cozy Library',
     author: '@hana_ux',
-    filterGroup: 'Study',
+    tags: ['Study', 'Warm'],
     description:
       'Warm mahogany desk tones, page-flipping study idle loop, and gentle teacup hydration nudges.',
     downloads: '4.2k',
@@ -39,7 +45,7 @@ const INITIAL_COMMUNITY_PRESETS: CommunityPreset[] = [
     id: 'preset-neon-night',
     title: 'Neon Night',
     author: '@synth_mambo',
-    filterGroup: 'Fun',
+    tags: ['Fun', 'Study'],
     description:
       'Cyberpunk synthwave glow with high-contrast intervention alerts and energetic celebration sparkles.',
     downloads: '3.8k',
@@ -49,7 +55,7 @@ const INITIAL_COMMUNITY_PRESETS: CommunityPreset[] = [
     id: 'preset-forest-focus',
     title: 'Forest Focus',
     author: '@moss_studio',
-    filterGroup: 'Calm',
+    tags: ['Calm', 'Warm'],
     description:
       'Botanical emerald palette designed for low-eye-strain reading blocks and mindful breathing breaks.',
     downloads: '5.1k',
@@ -59,21 +65,12 @@ const INITIAL_COMMUNITY_PRESETS: CommunityPreset[] = [
     id: 'preset-retro-arcade',
     title: 'Retro Arcade',
     author: '@pixel_knight',
-    filterGroup: 'Minimal',
+    tags: ['Minimal', 'Fun'],
     description:
       'Crisp 16-bit inspired status animations, minimal distraction borders, and classic level-up chimes.',
     downloads: '2.9k',
     previewMode: 'bathroom',
   },
-];
-
-const EXISTING_BUDDY_PRESETS_TO_OVERRIDE: ReadonlyArray<string> = [
-  'Mambo',
-  'Study Night',
-  'Gym Break',
-  'Exam Week',
-  'Scholar Mambo',
-  'Round Glasses Mambo',
 ];
 
 const FILTER_PILLS: ReadonlyArray<MarketplaceFilter> = [
@@ -82,6 +79,15 @@ const FILTER_PILLS: ReadonlyArray<MarketplaceFilter> = [
   'Calm',
   'Fun',
   'Minimal',
+  'Warm',
+];
+
+const SHAREABLE_TAGS: ReadonlyArray<ShareableTag> = [
+  'Study',
+  'Calm',
+  'Fun',
+  'Minimal',
+  'Warm',
 ];
 
 const CATEGORY_TOGGLES: ReadonlyArray<{
@@ -98,6 +104,10 @@ export const MarketplaceView: React.FC = () => {
   const [presets, setPresets] = useState<CommunityPreset[]>(
     INITIAL_COMMUNITY_PRESETS
   );
+  const [userActivePresets, setUserActivePresets] = useState<UserBuddyPreset[]>(
+    loadUserBuddyPresets
+  );
+
   const [selectedFilter, setSelectedFilter] =
     useState<MarketplaceFilter>('All');
   const [selectedEarnedBuddyId, setSelectedEarnedBuddyId] =
@@ -111,8 +121,8 @@ export const MarketplaceView: React.FC = () => {
     useState<PresetApplyMode>('create_new');
   const [newPresetCustomName, setNewPresetCustomName] =
     useState<string>('Cozy Library Custom');
-  const [overrideTargetPreset, setOverrideTargetPreset] = useState<string>(
-    EXISTING_BUDDY_PRESETS_TO_OVERRIDE[0]
+  const [overrideTargetPresetId, setOverrideTargetPresetId] = useState<string>(
+    () => userActivePresets[0]?.id ?? 'preset-mkt-cozy'
   );
 
   const [selectedCategories, setSelectedCategories] = useState<
@@ -124,9 +134,16 @@ export const MarketplaceView: React.FC = () => {
     Status: true,
   });
 
-  // "Add to Marketplace / Share your Buddy" Modal State
+  // "Share your Buddy to Marketplace" Modal State
   const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
-  const [publishTitle, setPublishTitle] = useState<string>('');
+  const [publishSourcePresetId, setPublishSourcePresetId] = useState<string>(
+    () => userActivePresets[0]?.id ?? 'preset-custom-night'
+  );
+  const [publishTitle, setPublishTitle] = useState<string>('Midnight Matcha');
+  const [publishTags, setPublishTags] = useState<ShareableTag[]>([
+    'Study',
+    'Calm',
+  ]);
   const [publishDescription, setPublishDescription] = useState<string>('');
   const [publishMode, setPublishMode] =
     useState<ChibiCompanionMode>('idle_studying');
@@ -136,7 +153,7 @@ export const MarketplaceView: React.FC = () => {
   const filteredPresets =
     selectedFilter === 'All'
       ? presets
-      : presets.filter((p) => p.filterGroup === selectedFilter);
+      : presets.filter((p) => p.tags.includes(selectedFilter));
 
   const activePreset =
     presets.find((p) => p.id === selectedPresetId) ?? presets[0];
@@ -158,19 +175,66 @@ export const MarketplaceView: React.FC = () => {
     }));
   };
 
+  const togglePublishTag = (tag: ShareableTag) => {
+    setPublishTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
   const handleApplyPreset = () => {
     playChime('break_start');
     const enabledCount =
       Object.values(selectedCategories).filter(Boolean).length;
 
-    const actionDescription =
-      applyMode === 'create_new'
-        ? `Created new preset "${newPresetCustomName.trim() || activePreset.title}"`
-        : `Overwrote preset "${overrideTargetPreset}" with "${activePreset.title}"`;
-
-    setAppliedBanner(
-      `${actionDescription} (${enabledCount} animation categories active)`
-    );
+    if (applyMode === 'create_new') {
+      const createdUserPreset: UserBuddyPreset = {
+        id: `preset-mkt-${Date.now()}`,
+        name: newPresetCustomName.trim() || activePreset.title,
+        source: 'Marketplace',
+        accentBg: '#4C3073',
+        defaultMode: activePreset.previewMode,
+      };
+      const updated = [createdUserPreset, ...userActivePresets];
+      setUserActivePresets(updated);
+      setOverrideTargetPresetId(createdUserPreset.id);
+      try {
+        localStorage.setItem(
+          USER_BUDDY_PRESETS_STORAGE_KEY,
+          JSON.stringify(updated)
+        );
+      } catch {
+        // Ignore storage error
+      }
+      setAppliedBanner(
+        `Created preset "${createdUserPreset.name}" (${enabledCount} categories active)`
+      );
+    } else {
+      const targetObj = userActivePresets.find(
+        (p) => p.id === overrideTargetPresetId
+      );
+      const targetName = targetObj?.name || 'Selected Preset';
+      const updated = userActivePresets.map((p) =>
+        p.id === overrideTargetPresetId
+          ? {
+              ...p,
+              name: `${activePreset.title} (${p.source})`,
+              defaultMode: activePreset.previewMode,
+            }
+          : p
+      );
+      setUserActivePresets(updated);
+      try {
+        localStorage.setItem(
+          USER_BUDDY_PRESETS_STORAGE_KEY,
+          JSON.stringify(updated)
+        );
+      } catch {
+        // Ignore storage error
+      }
+      setAppliedBanner(
+        `Overwrote "${targetName}" with "${activePreset.title}" (${enabledCount} categories active)`
+      );
+    }
   };
 
   const handlePublishBuddy = (e: React.FormEvent) => {
@@ -181,7 +245,7 @@ export const MarketplaceView: React.FC = () => {
       id: `preset-custom-${Date.now()}`,
       title: publishTitle.trim(),
       author: '@you',
-      filterGroup: 'Study',
+      tags: publishTags.length > 0 ? publishTags : ['Study'],
       description:
         publishDescription.trim() ||
         `Custom Mambo companion configuration based on ${activeEarnedBuddy.name}.`,
@@ -195,7 +259,9 @@ export const MarketplaceView: React.FC = () => {
     setPublishDescription('');
     setIsPublishModalOpen(false);
     playChime('gentle_bell');
-    setAppliedBanner(`Published "${created.title}" to the Community Marketplace!`);
+    setAppliedBanner(
+      `Published "${created.title}" to the Community Marketplace!`
+    );
   };
 
   return (
@@ -237,7 +303,8 @@ export const MarketplaceView: React.FC = () => {
               Earned buddies
             </h3>
             <span className="rounded-full bg-[#241E36] px-2 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
-              3 / 5
+              {COMPANION_LEVEL_ROSTER.filter((b) => b.unlocked).length} /{' '}
+              {COMPANION_LEVEL_ROSTER.length}
             </span>
           </div>
 
@@ -283,9 +350,8 @@ export const MarketplaceView: React.FC = () => {
           </div>
         </div>
 
-        {/* CENTER PANEL: Marketplace Grid (Category Tags Removed from Character Cards) */}
+        {/* CENTER PANEL: Marketplace Grid */}
         <div className="col-span-5 flex flex-col rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
-          {/* Filter Pills */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#262038] pb-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {FILTER_PILLS.map((pill) => {
@@ -308,7 +374,6 @@ export const MarketplaceView: React.FC = () => {
             </div>
           </div>
 
-          {/* 2x2 Community Character Cards (Clean, No Category Tags) */}
           <div className="mt-3.5 grid grid-cols-2 gap-3 overflow-y-auto">
             {filteredPresets.map((preset) => {
               const isSelected = preset.id === activePreset.id;
@@ -354,10 +419,9 @@ export const MarketplaceView: React.FC = () => {
           </div>
         </div>
 
-        {/* RIGHT PANEL: Preset Details Drawer with Override Preset Dropdown */}
+        {/* RIGHT PANEL: Preset Details Drawer with Active User Presets Override Dropdown */}
         <div className="col-span-4 flex flex-col justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4">
           <div className="flex flex-col gap-3.5">
-            {/* Selected Preset Summary Header */}
             <div className="flex items-center justify-between border-b border-[#262038] pb-3">
               <div>
                 <h3 className="text-[15px] font-bold text-white">
@@ -408,7 +472,7 @@ export const MarketplaceView: React.FC = () => {
                 />
               )}
 
-              {/* Option 2: Override current preset + Target Preset Dropdown */}
+              {/* Option 2: Override current preset + Dropdown of Active User Presets */}
               <button
                 type="button"
                 onClick={() => setApplyMode('override_current')}
@@ -431,16 +495,16 @@ export const MarketplaceView: React.FC = () => {
               {applyMode === 'override_current' && (
                 <div className="flex flex-col gap-1 pt-0.5">
                   <label className="text-[11px] font-medium text-[#9E97B8]">
-                    Select existing preset to overwrite:
+                    Select active preset to replace:
                   </label>
                   <select
-                    value={overrideTargetPreset}
-                    onChange={(e) => setOverrideTargetPreset(e.target.value)}
+                    value={overrideTargetPresetId}
+                    onChange={(e) => setOverrideTargetPresetId(e.target.value)}
                     className="w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[12px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
                   >
-                    {EXISTING_BUDDY_PRESETS_TO_OVERRIDE.map((presetName) => (
-                      <option key={presetName} value={presetName}>
-                        {presetName}
+                    {userActivePresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name} ({preset.source})
                       </option>
                     ))}
                   </select>
@@ -499,7 +563,6 @@ export const MarketplaceView: React.FC = () => {
             </div>
           </div>
 
-          {/* Primary Apply CTA */}
           <button
             type="button"
             onClick={handleApplyPreset}
@@ -507,17 +570,17 @@ export const MarketplaceView: React.FC = () => {
           >
             {applyMode === 'create_new'
               ? 'Create & Equip Preset'
-              : `Overwrite "${overrideTargetPreset}"`}
+              : 'Replace Selected Preset'}
           </button>
         </div>
       </div>
 
-      {/* Share your Buddy / Add to Marketplace Modal */}
+      {/* Share your Buddy to Marketplace Overlay Modal */}
       {isPublishModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4">
           <form
             onSubmit={handlePublishBuddy}
-            className="w-[400px] rounded-2xl border border-[#4E4187] bg-[#1A1626] p-5 shadow-2xl flex flex-col gap-4"
+            className="w-[430px] rounded-2xl border border-[#4E4187] bg-[#1A1626] p-5 shadow-2xl flex flex-col gap-4"
           >
             <div className="flex items-center justify-between border-b border-[#2C253E] pb-3">
               <h3 className="text-[16px] font-bold text-white">
@@ -532,6 +595,35 @@ export const MarketplaceView: React.FC = () => {
               </button>
             </div>
 
+            {/* 1. Preset Selection Dropdown Positioned Directly ABOVE Preset Title */}
+            <div>
+              <label className="block text-[12px] font-medium text-[#B8B2CC]">
+                Select Preset to Share
+              </label>
+              <select
+                value={publishSourcePresetId}
+                onChange={(e) => {
+                  const chosenId = e.target.value;
+                  setPublishSourcePresetId(chosenId);
+                  const found = userActivePresets.find(
+                    (p) => p.id === chosenId
+                  );
+                  if (found) {
+                    setPublishTitle(found.name);
+                    setPublishMode(found.defaultMode);
+                  }
+                }}
+                className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[12.5px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
+              >
+                {userActivePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} ({preset.source})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. Preset Title Input Field */}
             <div>
               <label className="block text-[12px] font-medium text-[#B8B2CC]">
                 Preset Title
@@ -546,24 +638,33 @@ export const MarketplaceView: React.FC = () => {
               />
             </div>
 
+            {/* 3. Multi-Select Category Tags (Study, Calm, Fun, Minimal, Warm) */}
             <div>
-              <label className="block text-[12px] font-medium text-[#B8B2CC]">
-                Default Animation Preview
-              </label>
-              <select
-                value={publishMode}
-                onChange={(e) =>
-                  setPublishMode(e.target.value as ChibiCompanionMode)
-                }
-                className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[12.5px] text-white focus:border-[#A594F9] focus:outline-none"
-              >
-                <option value="idle_studying">Idle · Studying</option>
-                <option value="hydration">Reminder · Hydration</option>
-                <option value="bathroom">Reminder · Break Stretch</option>
-                <option value="celebrating">Success · Celebrating</option>
-              </select>
+              <span className="block text-[12px] font-medium text-[#B8B2CC]">
+                Best Used For (Select Tags)
+              </span>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {SHAREABLE_TAGS.map((tag) => {
+                  const selected = publishTags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => togglePublishTag(tag)}
+                      className={`rounded-full border px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
+                        selected
+                          ? 'border-[#A594F9] bg-[#A594F9] text-[#171329]'
+                          : 'border-[#322A4B] bg-[#120F1D] text-[#9E97B8] hover:text-white'
+                      }`}
+                    >
+                      {selected ? `✓ ${tag}` : tag}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
+            {/* 4. Description */}
             <div>
               <label className="block text-[12px] font-medium text-[#B8B2CC]">
                 Description
@@ -577,7 +678,7 @@ export const MarketplaceView: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#262038]">
               <button
                 type="button"
                 onClick={() => setIsPublishModalOpen(false)}

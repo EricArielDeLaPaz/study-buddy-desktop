@@ -44,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         className="flex items-center gap-2.5"
       >
+        {/* Open / Close Notepad Toggle Button with Pencil Icon */}
         <button
           type="button"
           onClick={onToggleScratchpad}
@@ -66,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          <span>{isScratchpadOpen ? 'Scratchpad Open' : 'Open Scratchpad'}</span>
+          <span>{isScratchpadOpen ? 'Close Notepad' : 'Open Notepad'}</span>
         </button>
 
         <button

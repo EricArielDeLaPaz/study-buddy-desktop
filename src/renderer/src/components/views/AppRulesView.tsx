@@ -1,9 +1,10 @@
 // src/renderer/src/components/views/AppRulesView.tsx
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 
 export interface AppRuleItem {
   id: string;
+  kind?: 'website' | 'app';
   targetName: string;
   domainOrProcess: string;
   category: 'Social' | 'Video' | 'Chat' | 'Gaming';
@@ -15,7 +16,11 @@ export interface AppRulesViewProps {
   rules: AppRuleItem[];
   onToggleRuleEnabled: (id: string) => void;
   onToggleRuleStrict: (id: string) => void;
-  onAddRule: (targetName: string, domainOrProcess: string) => void;
+  onAddRule: (
+    targetName: string,
+    domainOrProcess: string,
+    kind?: 'website' | 'app'
+  ) => void;
 }
 
 export const AppRulesView: React.FC<AppRulesViewProps> = ({
@@ -25,23 +30,47 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
   onAddRule,
 }) => {
   const { triggerOverlay } = useApp();
-  const [newAppName, setNewAppName] = useState<string>('');
-  const [newDomain, setNewDomain] = useState<string>('');
+
+  const [targetKind, setTargetKind] = useState<'website' | 'app'>('website');
+  const [customTagName, setCustomTagName] = useState<string>('');
+  const [domainOrExecutable, setDomainOrExecutable] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleDesktopAppPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setDomainOrExecutable(file.name);
+    if (!customTagName.trim()) {
+      const base = file.name.replace(/\.(exe|app|lnk|dmg)$/i, '');
+      setCustomTagName(base);
+    }
+    e.target.value = '';
+  };
 
   const handleCreateRule = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAppName.trim()) return;
+    if (!customTagName.trim()) return;
+
+    const fallbackTarget =
+      targetKind === 'website'
+        ? `${customTagName.trim().toLowerCase().replace(/\s+/g, '')}.com`
+        : `${customTagName.trim().toLowerCase().replace(/\s+/g, '')}.exe`;
+
     onAddRule(
-      newAppName.trim(),
-      newDomain.trim() || `${newAppName.trim().toLowerCase()}.com`
+      customTagName.trim(),
+      domainOrExecutable.trim() || fallbackTarget,
+      targetKind
     );
-    setNewAppName('');
-    setNewDomain('');
+    setCustomTagName('');
+    setDomainOrExecutable('');
   };
 
   const handleTestSingleAppNudge = (rule: AppRuleItem) => {
+    // Strip parenthetical tag notes for clean speech bubble display if present
+    const cleanTarget =
+      rule.targetName.replace(/\s*\(.*?\)\s*/g, '').trim() || rule.targetName;
     triggerOverlay('overlay_intervention', {
-      targetAppOrSite: rule.targetName,
+      targetAppOrSite: cleanTarget,
       strictMode: rule.strictBlock,
     });
   };
@@ -63,28 +92,87 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
         </span>
       </div>
 
-      {/* Add Single App / Website Rule Form */}
+      {/* Upgraded Rule Creator Matching Smart Activation Model */}
       <form
         onSubmit={handleCreateRule}
-        className="flex items-center gap-3 rounded-2xl border border-[#2C253E] bg-[#181424] p-4"
+        className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-[#2C253E] bg-[#181424] p-4"
       >
+        {/* Toggle between Website and Desktop App */}
+        <div className="flex rounded-xl bg-[#110E1A] p-1 border border-[#2C253E]">
+          <button
+            type="button"
+            onClick={() => setTargetKind('website')}
+            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
+              targetKind === 'website'
+                ? 'bg-[#A594F9] text-[#171329]'
+                : 'text-[#9E97B8] hover:text-white'
+            }`}
+          >
+            Website
+          </button>
+          <button
+            type="button"
+            onClick={() => setTargetKind('app')}
+            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
+              targetKind === 'app'
+                ? 'bg-[#A594F9] text-[#171329]'
+                : 'text-[#9E97B8] hover:text-white'
+            }`}
+          >
+            Desktop App
+          </button>
+        </div>
+
+        {/* Custom Tag Name Input */}
         <input
           type="text"
-          value={newAppName}
-          onChange={(e) => setNewAppName(e.target.value)}
-          placeholder="App or site name (e.g., Instagram, Steam)"
-          className="flex-1 rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+          value={customTagName}
+          onChange={(e) => setCustomTagName(e.target.value)}
+          placeholder={
+            targetKind === 'website'
+              ? 'Custom Tag Name (e.g., Instagram)'
+              : 'Custom Tag Name (e.g., Steam (Gaming))'
+          }
+          className="flex-1 min-w-[200px] rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
         />
-        <input
-          type="text"
-          value={newDomain}
-          onChange={(e) => setNewDomain(e.target.value)}
-          placeholder="Domain or process (e.g., instagram.com)"
-          className="flex-1 rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
-        />
+
+        {/* Domain URL or Process Executable Input */}
+        <div className="flex flex-1 min-w-[220px] items-center gap-1.5">
+          <input
+            type="text"
+            value={domainOrExecutable}
+            onChange={(e) => setDomainOrExecutable(e.target.value)}
+            placeholder={
+              targetKind === 'website'
+                ? 'Domain URL (e.g., instagram.com)'
+                : 'Process / executable (e.g., steam.exe)'
+            }
+            className="w-full rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+          />
+
+          {targetKind === 'app' && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleDesktopAppPicked}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Browse local executable"
+                className="shrink-0 rounded-xl border border-[#3B3354] bg-[#1E192D] px-3 py-2 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#2A233F] hover:text-white transition cursor-pointer"
+              >
+                Browse…
+              </button>
+            </>
+          )}
+        </div>
+
         <button
           type="submit"
-          className="rounded-xl bg-[#A594F9] px-4 py-2 text-[13px] font-bold text-[#171329] hover:bg-[#B5A7FA] transition cursor-pointer"
+          className="rounded-xl bg-[#A594F9] px-4 py-2 text-[13px] font-bold text-[#171329] hover:bg-[#B5A7FA] transition cursor-pointer shadow-sm"
         >
           Add Target
         </button>
@@ -92,76 +180,90 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
 
       {/* Rules List */}
       <div className="flex flex-col gap-2.5">
-        {rules.map((rule) => (
-          <div
-            key={rule.id}
-            className={`flex items-center justify-between rounded-2xl border px-4 py-3.5 transition ${
-              rule.enabled
-                ? 'border-[#322A4B] bg-[#181424]'
-                : 'border-[#221C33] bg-[#120F1D] opacity-60'
-            }`}
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#261E42] font-bold text-[#A594F9]">
-                {rule.targetName.slice(0, 1).toUpperCase()}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-bold text-white">
-                    {rule.targetName}
-                  </span>
-                  <span className="rounded-md bg-[#231D35] px-2 py-0.5 text-[10.5px] font-medium text-[#9E97B8]">
-                    {rule.domainOrProcess}
-                  </span>
+        {rules.map((rule) => {
+          const isApp =
+            rule.kind === 'app' ||
+            rule.domainOrProcess.toLowerCase().endsWith('.exe');
+          const cleanPromptName =
+            rule.targetName.replace(/\s*\(.*?\)\s*/g, '').trim() ||
+            rule.targetName;
+
+          return (
+            <div
+              key={rule.id}
+              className={`flex items-center justify-between rounded-2xl border px-4 py-3.5 transition ${
+                rule.enabled
+                  ? 'border-[#322A4B] bg-[#181424]'
+                  : 'border-[#221C33] bg-[#120F1D] opacity-60'
+              }`}
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#261E42] text-[15px] font-bold text-[#A594F9]">
+                  {isApp ? '💻' : '🌐'}
                 </div>
-                <p className="mt-0.5 text-[11.5px] text-[#8E87A8]">
-                  Overlay prompt: &ldquo;No! Don&apos;t go on {rule.targetName}&rdquo;
-                </p>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-bold text-white">
+                      {rule.targetName}
+                    </span>
+                    <span className="rounded-md bg-[#231D35] px-2 py-0.5 text-[10.5px] font-medium text-[#9E97B8]">
+                      {rule.domainOrProcess}
+                    </span>
+                    <span className="rounded-full bg-[#1C172B] px-2 py-0.5 text-[10px] font-semibold text-[#A594F9]">
+                      {isApp ? 'Desktop App' : 'Website'}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11.5px] text-[#8E87A8]">
+                    Overlay prompt: &ldquo;No! Don&apos;t go on {cleanPromptName}&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Strict Mode Pill Toggle */}
+                <button
+                  type="button"
+                  onClick={() => onToggleRuleStrict(rule.id)}
+                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                    rule.strictBlock
+                      ? 'border-rose-500/50 bg-rose-500/20 text-rose-200'
+                      : 'border-[#383052] bg-[#1D182D] text-[#9E97B8] hover:text-white'
+                  }`}
+                >
+                  {rule.strictBlock
+                    ? 'Strict (Close only)'
+                    : 'Default (Strict off)'}
+                </button>
+
+                {/* Instant Single-App Intervention Preview Button */}
+                <button
+                  type="button"
+                  onClick={() => handleTestSingleAppNudge(rule)}
+                  className="rounded-lg border border-[#4E4187] bg-[#261E42] px-3 py-1 text-[11.5px] font-semibold text-[#DDD8F3] hover:bg-[#35295B] transition cursor-pointer"
+                >
+                  Test &ldquo;{cleanPromptName}&rdquo;
+                </button>
+
+                {/* Enable Switch */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={rule.enabled}
+                  onClick={() => onToggleRuleEnabled(rule.id)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                    rule.enabled ? 'bg-[#A594F9]' : 'bg-[#2C253E]'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-[#151120] transition-transform ${
+                      rule.enabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
               </div>
             </div>
-
-            <div className="flex items-center gap-3">
-              {/* Strict Mode Pill Toggle */}
-              <button
-                type="button"
-                onClick={() => onToggleRuleStrict(rule.id)}
-                className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
-                  rule.strictBlock
-                    ? 'border-rose-500/50 bg-rose-500/20 text-rose-200'
-                    : 'border-[#383052] bg-[#1D182D] text-[#9E97B8] hover:text-white'
-                }`}
-              >
-                {rule.strictBlock ? 'Strict (Close only)' : 'Default (Strict off)'}
-              </button>
-
-              {/* Instant Single-App Intervention Preview Button */}
-              <button
-                type="button"
-                onClick={() => handleTestSingleAppNudge(rule)}
-                className="rounded-lg border border-[#4E4187] bg-[#261E42] px-3 py-1 text-[11.5px] font-semibold text-[#DDD8F3] hover:bg-[#35295B] transition cursor-pointer"
-              >
-                Test &ldquo;{rule.targetName}&rdquo;
-              </button>
-
-              {/* Enable Switch */}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={rule.enabled}
-                onClick={() => onToggleRuleEnabled(rule.id)}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                  rule.enabled ? 'bg-[#A594F9]' : 'bg-[#2C253E]'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-[#151120] transition-transform ${
-                    rule.enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

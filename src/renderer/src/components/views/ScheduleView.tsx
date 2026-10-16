@@ -8,6 +8,8 @@ export interface TimeBlockSchedule {
   endTime: string;
   days: string[];
   preset: 'Quick 25/5' | 'Standard 45/5' | 'Deep 60/10' | 'Custom';
+  customFocusMinutes?: number;
+  customBreakMinutes?: number;
 }
 
 export interface SmartActivationTarget {
@@ -122,6 +124,12 @@ export const ScheduleView: React.FC = () => {
   const [blockPreset, setBlockPreset] =
     useState<TimeBlockSchedule['preset']>('Standard 45/5');
 
+  // Custom Time Drawer State inside Schedule Modal
+  const [isCustomTimeDrawerOpen, setIsCustomTimeDrawerOpen] =
+    useState<boolean>(false);
+  const [customFocusMinutes, setCustomFocusMinutes] = useState<number>(35);
+  const [customBreakMinutes, setCustomBreakMinutes] = useState<number>(8);
+
   // Smart Activation Add Form State
   const [addTargetKind, setAddTargetKind] = useState<'website' | 'app'>(
     'website'
@@ -130,7 +138,6 @@ export const ScheduleView: React.FC = () => {
   const [targetUrlOrAppName, setTargetUrlOrAppName] = useState<string>('');
   const appFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Open modal for creating a new schedule block
   const handleOpenAddBlockModal = () => {
     setEditingBlockId(null);
     setBlockTitle('');
@@ -138,10 +145,12 @@ export const ScheduleView: React.FC = () => {
     setBlockEnd('11:00');
     setBlockDays(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
     setBlockPreset('Standard 45/5');
+    setCustomFocusMinutes(35);
+    setCustomBreakMinutes(8);
+    setIsCustomTimeDrawerOpen(false);
     setIsBlockModalOpen(true);
   };
 
-  // Open modal for editing an existing schedule block
   const handleOpenEditBlockModal = (block: TimeBlockSchedule) => {
     setEditingBlockId(block.id);
     setBlockTitle(block.title);
@@ -149,6 +158,9 @@ export const ScheduleView: React.FC = () => {
     setBlockEnd(block.endTime);
     setBlockDays(block.days);
     setBlockPreset(block.preset);
+    setCustomFocusMinutes(block.customFocusMinutes ?? 35);
+    setCustomBreakMinutes(block.customBreakMinutes ?? 8);
+    setIsCustomTimeDrawerOpen(block.preset === 'Custom');
     setIsBlockModalOpen(true);
   };
 
@@ -167,8 +179,13 @@ export const ScheduleView: React.FC = () => {
       title: blockTitle.trim(),
       startTime: blockStart || '09:00',
       endTime: blockEnd || '11:00',
-      days: blockDays.length > 0 ? blockDays : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      days:
+        blockDays.length > 0 ? blockDays : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
       preset: blockPreset,
+      customFocusMinutes:
+        blockPreset === 'Custom' ? customFocusMinutes : undefined,
+      customBreakMinutes:
+        blockPreset === 'Custom' ? customBreakMinutes : undefined,
     };
 
     if (editingBlockId) {
@@ -264,71 +281,81 @@ export const ScheduleView: React.FC = () => {
           </span>
         </div>
 
-        {blocks.map((block) => (
-          <div
-            key={block.id}
-            onClick={() => handleOpenEditBlockModal(block)}
-            className="flex items-center justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4 hover:border-[#524578] transition cursor-pointer"
-          >
-            <div>
-              <div className="flex items-center gap-2.5">
-                <p className="text-[15px] font-bold text-white">
-                  {block.title}
-                </p>
-                <span className="rounded-full bg-[#261E42] px-2.5 py-0.5 text-[11px] font-semibold text-[#A594F9]">
-                  {block.preset}
-                </span>
-              </div>
-              <p className="mt-1 text-[12.5px] font-medium text-[#9E97B8]">
-                {formatTime12h(block.startTime)} – {formatTime12h(block.endTime)}
-              </p>
+        {blocks.map((block) => {
+          const presetDisplay =
+            block.preset === 'Custom'
+              ? `Custom ${block.customFocusMinutes ?? 35}/${
+                  block.customBreakMinutes ?? 8
+                }`
+              : block.preset;
 
-              <div className="mt-2.5 flex items-center gap-1.5">
-                {ALL_DAYS.map((d) => {
-                  const active = block.days.includes(d);
-                  return (
-                    <span
-                      key={d}
-                      className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold ${
-                        active
-                          ? 'bg-[#3C3173] text-white'
-                          : 'bg-[#110E1A] text-[#6E678A]'
-                      }`}
-                    >
-                      {d}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Edit Icon (Pencil) */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenEditBlockModal(block);
-              }}
-              title={`Edit ${block.title}`}
-              aria-label={`Edit ${block.title}`}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] hover:border-[#A594F9] transition cursor-pointer"
+          return (
+            <div
+              key={block.id}
+              onClick={() => handleOpenEditBlockModal(block)}
+              className="flex items-center justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4 hover:border-[#524578] transition cursor-pointer"
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <p className="text-[15px] font-bold text-white">
+                    {block.title}
+                  </p>
+                  <span className="rounded-full bg-[#261E42] px-2.5 py-0.5 text-[11px] font-semibold text-[#A594F9]">
+                    {presetDisplay}
+                  </span>
+                </div>
+                <p className="mt-1 text-[12.5px] font-medium text-[#9E97B8]">
+                  {formatTime12h(block.startTime)} –{' '}
+                  {formatTime12h(block.endTime)}
+                </p>
+
+                <div className="mt-2.5 flex items-center gap-1.5">
+                  {ALL_DAYS.map((d) => {
+                    const active = block.days.includes(d);
+                    return (
+                      <span
+                        key={d}
+                        className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold ${
+                          active
+                            ? 'bg-[#3C3173] text-white'
+                            : 'bg-[#110E1A] text-[#6E678A]'
+                        }`}
+                      >
+                        {d}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Edit Icon (Pencil) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenEditBlockModal(block);
+                }}
+                title={`Edit ${block.title}`}
+                aria-label={`Edit ${block.title}`}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] hover:border-[#A594F9] transition cursor-pointer"
               >
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-              </svg>
-            </button>
-          </div>
-        ))}
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {/* Smart Activation Management (Apps & Websites) */}
@@ -352,7 +379,6 @@ export const ScheduleView: React.FC = () => {
           onSubmit={handleAddSmartTarget}
           className="flex flex-wrap items-center gap-2.5 rounded-xl border border-[#2A233D] bg-[#120F1D] p-3"
         >
-          {/* Mode Selector: Website vs App */}
           <div className="flex rounded-lg bg-[#1A1528] p-0.5 border border-[#2E2744]">
             <button
               type="button"
@@ -378,7 +404,6 @@ export const ScheduleView: React.FC = () => {
             </button>
           </div>
 
-          {/* Custom Tag Name Input */}
           <input
             type="text"
             value={customTagName}
@@ -391,7 +416,6 @@ export const ScheduleView: React.FC = () => {
             className="flex-1 min-w-[190px] rounded-lg border border-[#322A4B] bg-[#0E0B16] px-3 py-1.5 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
           />
 
-          {/* URL or App Process/File Input */}
           <div className="flex flex-1 min-w-[210px] items-center gap-1.5">
             <input
               type="text"
@@ -466,11 +490,13 @@ export const ScheduleView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm">
           <form
             onSubmit={handleSaveBlock}
-            className="w-[440px] rounded-2xl border border-[#4E4187] bg-[#1A1626] p-5 shadow-2xl flex flex-col gap-4"
+            className="w-[460px] rounded-2xl border border-[#4E4187] bg-[#1A1626] p-5 shadow-2xl flex flex-col gap-4"
           >
             <div className="flex items-center justify-between border-b border-[#2C253E] pb-3">
               <h3 className="text-[16px] font-bold text-white">
-                {editingBlockId ? 'Edit Schedule Time Block' : 'New Schedule Time Block'}
+                {editingBlockId
+                  ? 'Edit Schedule Time Block'
+                  : 'New Schedule Time Block'}
               </h3>
               <button
                 type="button"
@@ -549,7 +575,7 @@ export const ScheduleView: React.FC = () => {
               </div>
             </div>
 
-            {/* Session Preset Selector */}
+            {/* Session Preset Selector + Dynamic "Set Custom Time" Drawer */}
             <div>
               <span className="block text-[12px] font-medium text-[#B8B2CC]">
                 Session Preset
@@ -561,18 +587,112 @@ export const ScheduleView: React.FC = () => {
                     <button
                       key={preset}
                       type="button"
-                      onClick={() => setBlockPreset(preset)}
+                      onClick={() => {
+                        setBlockPreset(preset);
+                        if (preset !== 'Custom') {
+                          setIsCustomTimeDrawerOpen(false);
+                        }
+                      }}
                       className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition cursor-pointer ${
                         active
                           ? 'border-[#A594F9] bg-[#261E42] text-white'
                           : 'border-[#2A233D] bg-[#120F1D] text-[#8E87A8] hover:text-white'
                       }`}
                     >
-                      {preset}
+                      {preset === 'Custom' && active
+                        ? `Custom (${customFocusMinutes}m / ${customBreakMinutes}m)`
+                        : preset}
                     </button>
                   );
                 })}
               </div>
+
+              {/* Dynamically Revealed "Set Custom Time" Button & Stepper Drawer */}
+              {blockPreset === 'Custom' && (
+                <div className="mt-2.5 flex flex-col gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setIsCustomTimeDrawerOpen((prev) => !prev)
+                    }
+                    className="flex w-full items-center justify-between rounded-xl border border-[#4E4187] bg-[#211A36] px-3.5 py-2 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#2B2246] hover:text-white transition cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>⏱ Set Custom Time</span>
+                      <span className="rounded-md bg-[#141022] px-2 py-0.5 text-[11px] font-bold text-[#A594F9]">
+                        {customFocusMinutes}m study · {customBreakMinutes}m break
+                      </span>
+                    </span>
+                    <span className="text-[11px]">
+                      {isCustomTimeDrawerOpen ? '▴' : '▾'}
+                    </span>
+                  </button>
+
+                  {isCustomTimeDrawerOpen && (
+                    <div className="grid grid-cols-2 gap-3 rounded-xl border border-[#352C50] bg-[#120F1D] p-3">
+                      <div className="flex flex-col justify-between">
+                        <span className="text-[11px] font-medium text-[#9E97B8]">
+                          Study Duration
+                        </span>
+                        <div className="mt-2 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomFocusMinutes((m) => Math.max(5, m - 5))
+                            }
+                            className="flex h-6 w-6 items-center justify-center rounded bg-[#241E36] font-bold text-white hover:bg-[#352C50] cursor-pointer"
+                          >
+                            −
+                          </button>
+                          <span className="text-[13px] font-bold tabular-nums text-white">
+                            {customFocusMinutes} min
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomFocusMinutes((m) =>
+                                Math.min(180, m + 5)
+                              )
+                            }
+                            className="flex h-6 w-6 items-center justify-center rounded bg-[#241E36] font-bold text-white hover:bg-[#352C50] cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col justify-between">
+                        <span className="text-[11px] font-medium text-[#9E97B8]">
+                          Break Duration
+                        </span>
+                        <div className="mt-2 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomBreakMinutes((b) => Math.max(1, b - 1))
+                            }
+                            className="flex h-6 w-6 items-center justify-center rounded bg-[#241E36] font-bold text-white hover:bg-[#352C50] cursor-pointer"
+                          >
+                            −
+                          </button>
+                          <span className="text-[13px] font-bold tabular-nums text-white">
+                            {customBreakMinutes} min
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomBreakMinutes((b) => Math.min(60, b + 1))
+                            }
+                            className="flex h-6 w-6 items-center justify-center rounded bg-[#241E36] font-bold text-white hover:bg-[#352C50] cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Modal Footer Controls */}

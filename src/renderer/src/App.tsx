@@ -41,14 +41,16 @@ const TAB_LABELS: Record<NavTabId, string> = {
 const INITIAL_APP_RULES: AppRuleItem[] = [
   {
     id: 'rule-discord',
+    kind: 'app',
     targetName: 'Discord',
-    domainOrProcess: 'Discord.exe / discord.com',
+    domainOrProcess: 'Discord.exe',
     category: 'Chat',
     strictBlock: false,
     enabled: true,
   },
   {
     id: 'rule-youtube',
+    kind: 'website',
     targetName: 'YouTube',
     domainOrProcess: 'youtube.com',
     category: 'Video',
@@ -57,6 +59,7 @@ const INITIAL_APP_RULES: AppRuleItem[] = [
   },
   {
     id: 'rule-reddit',
+    kind: 'website',
     targetName: 'Reddit',
     domainOrProcess: 'reddit.com',
     category: 'Social',
@@ -65,6 +68,7 @@ const INITIAL_APP_RULES: AppRuleItem[] = [
   },
   {
     id: 'rule-twitter',
+    kind: 'website',
     targetName: 'Twitter',
     domainOrProcess: 'x.com / twitter.com',
     category: 'Social',
@@ -73,6 +77,7 @@ const INITIAL_APP_RULES: AppRuleItem[] = [
   },
   {
     id: 'rule-twitch',
+    kind: 'website',
     targetName: 'Twitch',
     domainOrProcess: 'twitch.tv',
     category: 'Video',
@@ -93,7 +98,7 @@ const StudyBuddyViewport: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<NavTabId>('session');
-  // Strict mutual exclusivity state: true = Full Desktop App Window, false = Floating Mambo Companion Dock
+  // Strict mutual exclusivity: true = Full Desktop App Window, false = Floating Mambo Companion Dock
   const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
   const [appRules, setAppRules] = useState<AppRuleItem[]>(INITIAL_APP_RULES);
@@ -120,7 +125,6 @@ const StudyBuddyViewport: React.FC = () => {
     [activeOverlay, dismissActiveOverlay, triggerOverlay]
   );
 
-  // Synchronize mouse capture regions when switching between Full Window mode and Companion Dock mode
   useEffect(() => {
     if (isDashboardVisible) {
       setInteractiveRegionHovered('floating-mascot-dock-shell', false);
@@ -179,13 +183,18 @@ const StudyBuddyViewport: React.FC = () => {
     );
   };
 
-  const handleAddRule = (targetName: string, domainOrProcess: string) => {
+  const handleAddRule = (
+    targetName: string,
+    domainOrProcess: string,
+    kind: 'website' | 'app' = 'website'
+  ) => {
     setAppRules((prev) => [
       {
         id: `rule-${Date.now()}`,
+        kind,
         targetName,
         domainOrProcess,
-        category: 'Social',
+        category: kind === 'app' ? 'Gaming' : 'Social',
         strictBlock: false,
         enabled: true,
       },
@@ -207,7 +216,7 @@ const StudyBuddyViewport: React.FC = () => {
             }
             className="pointer-events-auto flex h-[690px] w-[1060px] max-w-full max-h-full flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
           >
-            {/* Global Window Header */}
+            {/* Global Window Header with "Open Notepad" / "Close Notepad" */}
             <Header
               isScratchpadOpen={isScratchpadOpen}
               onToggleScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
@@ -217,10 +226,7 @@ const StudyBuddyViewport: React.FC = () => {
 
             {/* Clean Sidebar + Active View Body */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
-              <Sidebar
-                activeTab={activeTab}
-                onSelectTab={setActiveTab}
-              />
+              <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
               <main className="flex-1 overflow-y-auto bg-[#141020]">
                 {activeTab === 'session' && <SessionView />}
@@ -244,7 +250,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock (Only shown when Full Window is minimized and no overlay is active) */}
+      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock */}
       {!isDashboardVisible && activeOverlay === null && (
         <div
           className="pointer-events-auto"
@@ -262,7 +268,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Floating Resizable & Drag-and-Drop Rich Notes Scratchpad */}
+      {/* 3. Floating Resizable & Drag-and-Drop Notepad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -330,6 +336,14 @@ const StudyBuddyViewport: React.FC = () => {
                 {isDashboardVisible
                   ? 'Minimize to Companion Mode'
                   : 'Expand Full Window (⤢)'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setScratchpadOpen(!isScratchpadOpen)}
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-violet-200 transition cursor-pointer"
+              >
+                {isScratchpadOpen ? 'Close Notepad' : 'Open Notepad'}
               </button>
 
               <button

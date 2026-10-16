@@ -1,6 +1,10 @@
 // src/renderer/src/components/views/RemindersView.tsx
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import {
+  loadUserBuddyPresets,
+  UserBuddyPreset,
+} from './BuddyStudioView';
 
 export interface HabitReminderItem {
   id: string;
@@ -10,7 +14,17 @@ export interface HabitReminderItem {
   activeDays: number[]; // 0..6 for M T W T F S S
   message: string;
   icon: string;
+  characterType: 'developer' | 'custom';
+  animationSlotLabel: string;
 }
+
+const DEVELOPER_ANIMATION_OPTIONS = [
+  'Reminder · Drinking water (Default)',
+  'Reminder · Waving / Stretch',
+  'Idle · Studying Loop',
+  'Success · Celebrating Bounce',
+  'Status · Nudge Alert',
+] as const;
 
 const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
   {
@@ -21,6 +35,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4, 5, 6],
     message: "Wohoo good job so far, don't forget to rehydrate!",
     icon: '💧',
+    characterType: 'developer',
+    animationSlotLabel: 'Reminder · Drinking water (Default)',
   },
   {
     id: 'rem-bathroom',
@@ -30,6 +46,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4, 5, 6],
     message: 'Bathroom Break time!',
     icon: '🚻',
+    characterType: 'developer',
+    animationSlotLabel: 'Reminder · Waving / Stretch',
   },
   {
     id: 'rem-posture',
@@ -39,6 +57,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4],
     message: 'Sit tall, relax your shoulders, and align your screen.',
     icon: '🪑',
+    characterType: 'developer',
+    animationSlotLabel: 'Idle · Studying Loop',
   },
   {
     id: 'rem-stretch',
@@ -48,6 +68,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4],
     message: 'Roll your shoulders and stretch your wrists!',
     icon: '🧘',
+    characterType: 'developer',
+    animationSlotLabel: 'Reminder · Waving / Stretch',
   },
 ];
 
@@ -61,7 +83,23 @@ export const RemindersView: React.FC = () => {
     DEFAULT_REMINDERS_ROSTER
   );
 
-  // Track whether the right-side form is editing an existing reminder ID or creating a new one (null)
+  const [userPresets] = useState<UserBuddyPreset[]>(loadUserBuddyPresets);
+  const customBuddies = userPresets.filter((p) => p.source === 'Custom');
+
+  // Build custom animation sequence options from user-created custom buddies
+  const customAnimationOptions: string[] =
+    customBuddies.length > 0
+      ? customBuddies.flatMap((buddy) => [
+          `${buddy.name} · Custom Hydration Sequence`,
+          `${buddy.name} · Custom Break Sequence`,
+          `${buddy.name} · Custom Idle Sequence`,
+          `${buddy.name} · Custom Alert Sequence`,
+        ])
+      : [
+          'Midnight Matcha · Custom Hydration Sequence',
+          'Midnight Matcha · Custom Break Sequence',
+        ];
+
   const [editingReminderId, setEditingReminderId] = useState<string | null>(
     DEFAULT_REMINDERS_ROSTER[0].id
   );
@@ -85,8 +123,13 @@ export const RemindersView: React.FC = () => {
   const [formIcon, setFormIcon] = useState<string>(
     DEFAULT_REMINDERS_ROSTER[0].icon
   );
+  const [formCharacterType, setFormCharacterType] = useState<
+    'developer' | 'custom'
+  >(DEFAULT_REMINDERS_ROSTER[0].characterType);
+  const [formAnimationSlot, setFormAnimationSlot] = useState<string>(
+    DEFAULT_REMINDERS_ROSTER[0].animationSlotLabel
+  );
 
-  // Populate right-side form when clicking the Edit (pencil) icon on any reminder card
   const handleEditReminderClick = (item: HabitReminderItem) => {
     setEditingReminderId(item.id);
     setFormName(item.name);
@@ -95,9 +138,10 @@ export const RemindersView: React.FC = () => {
     setFormActiveDays(item.activeDays);
     setFormMessage(item.message);
     setFormIcon(item.icon);
+    setFormCharacterType(item.characterType);
+    setFormAnimationSlot(item.animationSlotLabel);
   };
 
-  // Switch form to blank "New reminder" creation mode
   const handleStartNewReminder = () => {
     setEditingReminderId(null);
     setFormName('');
@@ -106,6 +150,17 @@ export const RemindersView: React.FC = () => {
     setFormActiveDays([0, 1, 2, 3, 4]);
     setFormMessage('');
     setFormIcon('💧');
+    setFormCharacterType('developer');
+    setFormAnimationSlot(DEVELOPER_ANIMATION_OPTIONS[0]);
+  };
+
+  const handleSwitchCharacterType = (type: 'developer' | 'custom') => {
+    setFormCharacterType(type);
+    if (type === 'developer') {
+      setFormAnimationSlot(DEVELOPER_ANIMATION_OPTIONS[0]);
+    } else {
+      setFormAnimationSlot(customAnimationOptions[0]);
+    }
   };
 
   const toggleDaySelection = (dayIndex: number) => {
@@ -125,11 +180,14 @@ export const RemindersView: React.FC = () => {
       name: formName.trim(),
       frequencyMinutes: formFrequency,
       durationMinutes: formDuration,
-      activeDays: formActiveDays.length > 0 ? formActiveDays : [0, 1, 2, 3, 4],
+      activeDays:
+        formActiveDays.length > 0 ? formActiveDays : [0, 1, 2, 3, 4],
       message:
         formMessage.trim() ||
         `Time for your ${formName.trim()} check-in with Mambo!`,
       icon: formIcon,
+      characterType: formCharacterType,
+      animationSlotLabel: formAnimationSlot,
     };
 
     if (editingReminderId) {
@@ -146,7 +204,9 @@ export const RemindersView: React.FC = () => {
 
   const handleTestReminder = (item: HabitReminderItem) => {
     const kind =
-      item.name.toLowerCase().includes('water') || item.icon === '💧'
+      item.name.toLowerCase().includes('water') ||
+      item.animationSlotLabel.toLowerCase().includes('water') ||
+      item.animationSlotLabel.toLowerCase().includes('hydration')
         ? 'overlay_hydration'
         : 'overlay_bathroom';
 
@@ -165,7 +225,7 @@ export const RemindersView: React.FC = () => {
             Wellness & Study Reminders
           </h2>
           <p className="mt-1 text-[13px] text-[#9E97B8]">
-            Click the edit pencil on any reminder to customize its cadence, active days, and Mambo message.
+            Click the edit pencil on any reminder to customize its cadence, animation slot, and Mambo message.
           </p>
         </div>
 
@@ -180,7 +240,7 @@ export const RemindersView: React.FC = () => {
 
       {/* Main Two-Column Layout */}
       <div className="grid grid-cols-12 gap-5">
-        {/* Left Column: Default Reminders Roster with Edit Pencil Icon */}
+        {/* Left Column: Reminders Roster */}
         <div className="col-span-7 flex flex-col gap-3">
           {reminders.map((item) => {
             const isBeingEdited = editingReminderId === item.id;
@@ -199,12 +259,15 @@ export const RemindersView: React.FC = () => {
                     {item.icon}
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="text-[14.5px] font-bold text-white truncate">
                         {item.name}
                       </p>
                       <span className="rounded-full bg-[#241E36] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
                         Every {item.frequencyMinutes}m · {item.durationMinutes}m
+                      </span>
+                      <span className="rounded-md bg-[#161224] border border-[#322A4B] px-2 py-0.5 text-[10px] font-medium text-[#C4B5FD] truncate max-w-[190px]">
+                        🎬 {item.animationSlotLabel}
                       </span>
                     </div>
                     <p className="mt-1 text-[12px] text-[#9E97B8] truncate">
@@ -260,10 +323,10 @@ export const RemindersView: React.FC = () => {
           })}
         </div>
 
-        {/* Right Column: Editable Reminder / New Reminder Form Card */}
+        {/* Right Column: Editable Reminder / New Reminder Form Card with Animation Slot Picker */}
         <form
           onSubmit={handleSubmitForm}
-          className="col-span-5 flex flex-col gap-4 rounded-2xl border border-[#342C4C] bg-[#181424] p-5"
+          className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#342C4C] bg-[#181424] p-5"
         >
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
             <h3 className="text-[15px] font-bold text-white">
@@ -297,9 +360,7 @@ export const RemindersView: React.FC = () => {
               <div className="mt-2 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() =>
-                    setFormFrequency((f) => Math.max(5, f - 5))
-                  }
+                  onClick={() => setFormFrequency((f) => Math.max(5, f - 5))}
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
                   −
@@ -326,9 +387,7 @@ export const RemindersView: React.FC = () => {
               <div className="mt-2 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() =>
-                    setFormDuration((d) => Math.max(1, d - 1))
-                  }
+                  onClick={() => setFormDuration((d) => Math.max(1, d - 1))}
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
                   −
@@ -338,9 +397,7 @@ export const RemindersView: React.FC = () => {
                 </span>
                 <button
                   type="button"
-                  onClick={() =>
-                    setFormDuration((d) => Math.min(60, d + 1))
-                  }
+                  onClick={() => setFormDuration((d) => Math.min(60, d + 1))}
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
                   +
@@ -349,12 +406,63 @@ export const RemindersView: React.FC = () => {
             </div>
           </div>
 
+          {/* Animation Slot Picker (Unlocked Developer Character vs Custom Uploaded Buddy) */}
+          <div className="rounded-xl border border-[#2E2744] bg-[#120F1D] p-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[12px] font-semibold text-[#E2DFF0]">
+                Animation Slot Picker
+              </label>
+              <div className="flex rounded-lg bg-[#1A1528] p-0.5 border border-[#2E2744]">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchCharacterType('developer')}
+                  className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold transition cursor-pointer ${
+                    formCharacterType === 'developer'
+                      ? 'bg-[#A594F9] text-[#171329]'
+                      : 'text-[#9E97B8] hover:text-white'
+                  }`}
+                >
+                  Unlocked Buddy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchCharacterType('custom')}
+                  className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold transition cursor-pointer ${
+                    formCharacterType === 'custom'
+                      ? 'bg-[#A594F9] text-[#171329]'
+                      : 'text-[#9E97B8] hover:text-white'
+                  }`}
+                >
+                  Custom Buddy
+                </button>
+              </div>
+            </div>
+
+            <select
+              value={formAnimationSlot}
+              onChange={(e) => setFormAnimationSlot(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[12px] font-medium text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
+            >
+              {formCharacterType === 'developer'
+                ? DEVELOPER_ANIMATION_OPTIONS.map((anim) => (
+                    <option key={anim} value={anim}>
+                      {anim}
+                    </option>
+                  ))
+                : customAnimationOptions.map((anim) => (
+                    <option key={anim} value={anim}>
+                      {anim}
+                    </option>
+                  ))}
+            </select>
+          </div>
+
           {/* Active Days Picker (M T W T F S S) */}
           <div>
             <span className="block text-[12px] font-medium text-[#B8B2CC]">
               Active days
             </span>
-            <div className="mt-2 grid grid-cols-7 gap-1.5">
+            <div className="mt-1.5 grid grid-cols-7 gap-1.5">
               {DAY_LABELS.map((dayLabel, idx) => {
                 const isSelected = formActiveDays.includes(idx);
                 return (
@@ -394,7 +502,7 @@ export const RemindersView: React.FC = () => {
             <span className="block text-[12px] font-medium text-[#B8B2CC]">
               Icon
             </span>
-            <div className="mt-2 flex items-center gap-1.5">
+            <div className="mt-1.5 flex items-center gap-1.5">
               {ICON_CHOICES.map((icon) => (
                 <button
                   key={icon}
