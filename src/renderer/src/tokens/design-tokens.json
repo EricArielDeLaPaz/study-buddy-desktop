@@ -1,0 +1,92 @@
+{
+  "$schema": "https://designtokens.org/schema/latest.json",
+  "name": "Study Buddy Design System Tokens",
+  "version": "1.0.0",
+  "metadata": {
+    "author": "Eric Ariel De La Paz",
+    "project": "Study Buddy Desktop UX/UI"
+  },
+  "color": {
+    "surface": {
+      "dark": { "value": "#1A1626", "type": "color", "description": "Primary floating card surface background" },
+      "card": { "value": "#221D33", "type": "color", "description": "Modal overlay card background" },
+      "header": { "value": "#161221", "type": "color", "description": "Draggable window header background" },
+      "editor": { "value": "#0B0912", "type": "color", "description": "Multiline text editor inner background" },
+      "backdrop": { "value": "rgba(0, 0, 0, 0.45)", "type": "color", "description": "Fullscreen dimming backdrop" }
+    },
+    "border": {
+      "default": { "value": "#2C253E", "type": "color", "description": "Standard card border stroke" },
+      "subtle": { "value": "#241E34", "type": "color", "description": "Inner input border stroke" },
+      "highlight": { "value": "#4E4187", "type": "color", "description": "Active focus border stroke" }
+    },
+    "accent": {
+      "purple": { "value": "#A594F9", "type": "color", "description": "Primary action button and brand highlight" },
+      "purpleHover": { "value": "#B5A7FA", "type": "color", "description": "Hover state for primary buttons" },
+      "blue": { "value": "#60A5FA", "type": "color", "description": "Hydration break and info accent" },
+      "green": { "value": "#4ADE80", "type": "color", "description": "Cloud synced / active session success indicator" },
+      "amber": { "value": "#FBBF24", "type": "color", "description": "Offline warning indicator" },
+      "rose": { "value": "#F87171", "type": "color", "description": "Intervention alert accent" }
+    },
+    "text": {
+      "primary": { "value": "#FFFFFF", "type": "color", "description": "High-emphasis heading text" },
+      "secondary": { "value": "#E2DFF0", "type": "color", "description": "Standard body text" },
+      "muted": { "value": "#9E97B8", "type": "color", "description": "Secondary labels and timestamps" },
+      "placeholder": { "value": "#5A5373", "type": "color", "description": "Input and textarea placeholder text" }
+    }
+  },
+  "spacing": {
+    "xs": { "value": "4px", "type": "dimension" },
+    "sm": { "value": "8px", "type": "dimension" },
+    "md": { "value": "12px", "type": "dimension" },
+    "lg": { "value": "16px", "type": "dimension" },
+    "xl": { "value": "24px", "type": "dimension" },
+    "2xl": { "value": "32px", "type": "dimension" }
+  },
+  "typography": {
+    "fontFamily": {
+      "sans": { "value": "Inter, system-ui, -apple-system, sans-serif", "type": "string" },
+      "mono": { "value": "JetBrains Mono, monospace", "type": "string" }
+    },
+    "fontSize": {
+      "xs": { "value": "11px", "type": "dimension" },
+      "sm": { "value": "12.5px", "type": "dimension" },
+      "base": { "value": "13.5px", "type": "dimension" },
+      "lg": { "value": "18px", "type": "dimension" },
+      "xl": { "value": "20px", "type": "dimension" }
+    },
+    "fontWeight": {
+      "normal": { "value": 400, "type": "number" },
+      "medium": { "value": 500, "type": "number" },
+      "semibold": { "value": 600, "type": "number" },
+      "bold": { "value": 700, "type": "number" }
+    },
+    "lineHeight": {
+      "tight": { "value": 1.25, "type": "number" },
+      "normal": { "value": 1.5, "type": "number" },
+      "relaxed": { "value": 1.6, "type": "number" }
+    }
+  },
+  "borderRadius": {
+    "sm": { "value": "8px", "type": "dimension" },
+    "md": { "value": "12px", "type": "dimension" },
+    "lg": { "value": "20px", "type": "dimension" },
+    "xl": { "value": "24px", "type": "dimension" },
+    "full": { "value": "9999px", "type": "dimension" }
+  },
+  "animation": {
+    "duration": {
+      "fast": { "value": "150ms", "type": "string" },
+      "normal": { "value": "200ms", "type": "string" },
+      "slow": { "value": "350ms", "type": "string" }
+    },
+    "easing": {
+      "default": { "value": "cubic-bezier(0.4, 0, 0.2, 1)", "type": "string" },
+      "bounce": { "value": "cubic-bezier(0.34, 1.56, 0.64, 1)", "type": "string" }
+    }
+  },
+  "shadows": {
+    "card": { "value": "0 24px 60px rgba(0, 0, 0, 0.75)", "type": "shadow" },
+    "modal": { "value": "0 24px 60px rgba(0, 0, 0, 0.65)", "type": "shadow" },
+    "floating": { "value": "0 16px 40px rgba(0, 0, 0, 0.75)", "type": "shadow" }
+  }
+}
