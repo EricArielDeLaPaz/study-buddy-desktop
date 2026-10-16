@@ -9,7 +9,6 @@ import { Header } from './components/layout/Header';
 import { Sidebar, NavTabId } from './components/layout/Sidebar';
 import { SessionView } from './components/views/SessionView';
 import { RemindersView } from './components/views/RemindersView';
-import { MessagesView } from './components/views/MessagesView';
 import { ScheduleView } from './components/views/ScheduleView';
 import {
   AppRulesView,
@@ -21,7 +20,6 @@ import { MarketplaceView } from './components/views/MarketplaceView';
 import { SettingsView } from './components/views/SettingsView';
 import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad } from './components/scratchpad/Scratchpad';
-import { FocusController } from './components/focus/FocusController';
 import { FloatingMascotDock } from './components/companion/FloatingMascotDock';
 import { OverlayKind } from './types/buddy';
 import type {
@@ -32,7 +30,6 @@ import type {
 const TAB_LABELS: Record<NavTabId, string> = {
   session: 'Session',
   reminders: 'Reminders',
-  messages: 'Messages',
   schedule: 'Schedule',
   app_rules: 'App rules',
   progress: 'Progress',
@@ -216,7 +213,7 @@ const StudyBuddyViewport: React.FC = () => {
               activeTabLabel={TAB_LABELS[activeTab]}
             />
 
-            {/* Sidebar + Active View Body */}
+            {/* Sidebar + Active View Body (Messages tab removed) */}
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <Sidebar
                 activeTab={activeTab}
@@ -229,7 +226,6 @@ const StudyBuddyViewport: React.FC = () => {
               <main className="flex-1 overflow-y-auto bg-[#141020]">
                 {activeTab === 'session' && <SessionView />}
                 {activeTab === 'reminders' && <RemindersView />}
-                {activeTab === 'messages' && <MessagesView />}
                 {activeTab === 'schedule' && <ScheduleView />}
                 {activeTab === 'app_rules' && (
                   <AppRulesView
@@ -249,7 +245,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Floating Movable Scratchpad */}
+      {/* 2. Floating Movable Rich Notes Scratchpad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -262,22 +258,7 @@ const StudyBuddyViewport: React.FC = () => {
         <Scratchpad />
       </div>
 
-      {/* 3. Floating Autonomous Focus Controller (Shown when Dashboard is minimized) */}
-      {!isDashboardVisible && (
-        <div
-          className="pointer-events-auto"
-          onMouseEnter={() =>
-            handleInteractiveRegionHover('focus-controller-shell', true)
-          }
-          onMouseLeave={() =>
-            handleInteractiveRegionHover('focus-controller-shell', false)
-          }
-        >
-          <FocusController />
-        </div>
-      )}
-
-      {/* 4. Persistent Mini Companion Floating Dock (with Expand Arrow Button when minimized) */}
+      {/* 3. Sole Persistent Desktop Mambo Companion Dock (Auto-hides during active overlays) */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -288,12 +269,12 @@ const StudyBuddyViewport: React.FC = () => {
         }
       >
         <FloatingMascotDock
-          isDashboardMinimized={!isDashboardVisible}
-          onRestoreDashboard={() => setIsDashboardVisible(true)}
+          isDashboardVisible={isDashboardVisible}
+          onToggleDashboard={() => setIsDashboardVisible((prev) => !prev)}
         />
       </div>
 
-      {/* 5. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
       {activeOverlay !== null && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none transition-opacity duration-300"
@@ -313,7 +294,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Floating Collapsible Dev Trigger Bar */}
+      {/* 5. Floating Collapsible Dev Trigger Bar */}
       <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 pointer-events-none">
         <div
           onMouseEnter={() =>

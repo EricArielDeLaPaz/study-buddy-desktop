@@ -10,10 +10,9 @@ export interface HabitReminderItem {
   activeDays: number[]; // 0..6 for M T W T F S S
   message: string;
   icon: string;
-  enabled: boolean;
 }
 
-const INITIAL_REMINDERS: HabitReminderItem[] = [
+const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
   {
     id: 'rem-water',
     name: 'Drink Water',
@@ -22,27 +21,15 @@ const INITIAL_REMINDERS: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4, 5, 6],
     message: "Wohoo good job so far, don't forget to rehydrate!",
     icon: '💧',
-    enabled: true,
   },
   {
-    id: 'rem-stretch',
-    name: 'Stretch',
-    frequencyMinutes: 45,
-    durationMinutes: 5,
-    activeDays: [0, 1, 2, 3, 4],
-    message: 'Roll your shoulders and stretch your wrists!',
-    icon: '🧘',
-    enabled: true,
-  },
-  {
-    id: 'rem-walk',
-    name: 'Walk Around',
+    id: 'rem-bathroom',
+    name: 'Bathroom Break',
     frequencyMinutes: 60,
     durationMinutes: 10,
     activeDays: [0, 1, 2, 3, 4, 5, 6],
-    message: 'Bathroom Break time! Step away from the desk for a moment.',
-    icon: '🚶',
-    enabled: true,
+    message: 'Bathroom Break time!',
+    icon: '🚻',
   },
   {
     id: 'rem-posture',
@@ -52,98 +39,117 @@ const INITIAL_REMINDERS: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4],
     message: 'Sit tall, relax your shoulders, and align your screen.',
     icon: '🪑',
-    enabled: true,
   },
   {
-    id: 'rem-breathing',
-    name: 'Deep Breathing',
-    frequencyMinutes: 50,
-    durationMinutes: 3,
-    activeDays: [0, 1, 2, 3, 4, 5, 6],
-    message: 'Take 4 slow box breaths with Mambo.',
-    icon: '🌬️',
-    enabled: false,
-  },
-  {
-    id: 'rem-review',
-    name: 'Review Notes',
-    frequencyMinutes: 90,
-    durationMinutes: 10,
-    activeDays: [0, 1, 2, 3, 4],
-    message: 'Summarize your last study block in the Scratchpad!',
-    icon: '📝',
-    enabled: true,
-  },
-  {
-    id: 'rem-medication',
-    name: 'Take Medication',
-    frequencyMinutes: 180,
+    id: 'rem-stretch',
+    name: 'Stretch',
+    frequencyMinutes: 45,
     durationMinutes: 5,
-    activeDays: [0, 1, 2, 3, 4, 5, 6],
-    message: 'Time for your scheduled wellness check-in and glass of water.',
-    icon: '💊',
-    enabled: false,
+    activeDays: [0, 1, 2, 3, 4],
+    message: 'Roll your shoulders and stretch your wrists!',
+    icon: '🧘',
   },
 ];
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
-const ICON_CHOICES = ['💧', '🧘', '🚶', '🪑', '🌬️', '📝', '💊', '🍵'] as const;
+const ICON_CHOICES = ['💧', '🚻', '🪑', '🧘', '🚶', '🌬️', '📝', '🍵'] as const;
 
 export const RemindersView: React.FC = () => {
   const { triggerOverlay } = useApp();
 
-  const [reminders, setReminders] =
-    useState<HabitReminderItem[]>(INITIAL_REMINDERS);
-
-  // New Reminder Creator Form State
-  const [newName, setNewName] = useState<string>('Eye Rest (20-20-20)');
-  const [newFrequency, setNewFrequency] = useState<number>(30);
-  const [newDuration, setNewDuration] = useState<number>(5);
-  const [newActiveDays, setNewActiveDays] = useState<number[]>([0, 1, 2, 3, 4]);
-  const [newMessage, setNewMessage] = useState<string>(
-    'Look 20 feet away for 20 seconds to relax your eyes!'
+  const [reminders, setReminders] = useState<HabitReminderItem[]>(
+    DEFAULT_REMINDERS_ROSTER
   );
-  const [newIcon, setNewIcon] = useState<string>('💧');
 
-  const toggleHabitEnabled = (id: string) => {
-    setReminders((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, enabled: !item.enabled } : item
-      )
-    );
+  // Track whether the right-side form is editing an existing reminder ID or creating a new one (null)
+  const [editingReminderId, setEditingReminderId] = useState<string | null>(
+    DEFAULT_REMINDERS_ROSTER[0].id
+  );
+
+  // Right-Side Form Fields
+  const [formName, setFormName] = useState<string>(
+    DEFAULT_REMINDERS_ROSTER[0].name
+  );
+  const [formFrequency, setFormFrequency] = useState<number>(
+    DEFAULT_REMINDERS_ROSTER[0].frequencyMinutes
+  );
+  const [formDuration, setFormDuration] = useState<number>(
+    DEFAULT_REMINDERS_ROSTER[0].durationMinutes
+  );
+  const [formActiveDays, setFormActiveDays] = useState<number[]>(
+    DEFAULT_REMINDERS_ROSTER[0].activeDays
+  );
+  const [formMessage, setFormMessage] = useState<string>(
+    DEFAULT_REMINDERS_ROSTER[0].message
+  );
+  const [formIcon, setFormIcon] = useState<string>(
+    DEFAULT_REMINDERS_ROSTER[0].icon
+  );
+
+  // Populate right-side form when clicking the Edit (pencil) icon on any reminder card
+  const handleEditReminderClick = (item: HabitReminderItem) => {
+    setEditingReminderId(item.id);
+    setFormName(item.name);
+    setFormFrequency(item.frequencyMinutes);
+    setFormDuration(item.durationMinutes);
+    setFormActiveDays(item.activeDays);
+    setFormMessage(item.message);
+    setFormIcon(item.icon);
+  };
+
+  // Switch form to blank "New reminder" creation mode
+  const handleStartNewReminder = () => {
+    setEditingReminderId(null);
+    setFormName('');
+    setFormFrequency(30);
+    setFormDuration(5);
+    setFormActiveDays([0, 1, 2, 3, 4]);
+    setFormMessage('');
+    setFormIcon('💧');
   };
 
   const toggleDaySelection = (dayIndex: number) => {
-    setNewActiveDays((prev) =>
+    setFormActiveDays((prev) =>
       prev.includes(dayIndex)
         ? prev.filter((d) => d !== dayIndex)
         : [...prev, dayIndex].sort()
     );
   };
 
-  const handleSaveNewReminder = (e: React.FormEvent) => {
+  const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!formName.trim()) return;
 
-    const created: HabitReminderItem = {
-      id: `rem-${Date.now()}`,
-      name: newName.trim(),
-      frequencyMinutes: newFrequency,
-      durationMinutes: newDuration,
-      activeDays: newActiveDays.length > 0 ? newActiveDays : [0, 1, 2, 3, 4],
+    const updatedPayload: HabitReminderItem = {
+      id: editingReminderId ?? `rem-${Date.now()}`,
+      name: formName.trim(),
+      frequencyMinutes: formFrequency,
+      durationMinutes: formDuration,
+      activeDays: formActiveDays.length > 0 ? formActiveDays : [0, 1, 2, 3, 4],
       message:
-        newMessage.trim() || `Time for your ${newName.trim()} break with Mambo!`,
-      icon: newIcon,
-      enabled: true,
+        formMessage.trim() ||
+        `Time for your ${formName.trim()} check-in with Mambo!`,
+      icon: formIcon,
     };
 
-    setReminders((prev) => [created, ...prev]);
-    setNewName('');
+    if (editingReminderId) {
+      setReminders((prev) =>
+        prev.map((item) =>
+          item.id === editingReminderId ? updatedPayload : item
+        )
+      );
+    } else {
+      setReminders((prev) => [...prev, updatedPayload]);
+      setEditingReminderId(updatedPayload.id);
+    }
   };
 
   const handleTestReminder = (item: HabitReminderItem) => {
     const kind =
-      item.name === 'Drink Water' ? 'overlay_hydration' : 'overlay_bathroom';
+      item.name.toLowerCase().includes('water') || item.icon === '💧'
+        ? 'overlay_hydration'
+        : 'overlay_bathroom';
+
     triggerOverlay(kind, {
       durationSeconds: item.durationMinutes * 60,
       message: item.message,
@@ -159,86 +165,112 @@ export const RemindersView: React.FC = () => {
             Wellness & Study Reminders
           </h2>
           <p className="mt-1 text-[13px] text-[#9E97B8]">
-            Configure low-friction hydration, posture, and break nudges.
+            Click the edit pencil on any reminder to customize its cadence, active days, and Mambo message.
           </p>
         </div>
 
-        <span className="rounded-full bg-[#1E192D] border border-[#342C4C] px-3.5 py-1 text-[12px] font-medium text-[#C4B5FD]">
-          {reminders.filter((r) => r.enabled).length} active habits
-        </span>
+        <button
+          type="button"
+          onClick={handleStartNewReminder}
+          className="rounded-xl border border-[#4E4187] bg-[#261E42] px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-[#342959] transition cursor-pointer"
+        >
+          + New Reminder
+        </button>
       </div>
 
       {/* Main Two-Column Layout */}
       <div className="grid grid-cols-12 gap-5">
-        {/* Left Column: Habit Toggle List */}
-        <div className="col-span-7 flex flex-col gap-2.5">
-          {reminders.map((item) => (
-            <div
-              key={item.id}
-              className={`flex items-center justify-between rounded-2xl border p-3.5 transition ${
-                item.enabled
-                  ? 'border-[#322A4B] bg-[#181424]'
-                  : 'border-[#221C33] bg-[#120F1C] opacity-65'
-              }`}
-            >
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#251E3A] text-[18px]">
-                  {item.icon}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[14px] font-bold text-white truncate">
-                      {item.name}
-                    </p>
-                    <span className="rounded-full bg-[#241E36] px-2 py-0.5 text-[10.5px] font-medium text-[#A594F9]">
-                      Every {item.frequencyMinutes}m · {item.durationMinutes}m
-                    </span>
+        {/* Left Column: Default Reminders Roster with Edit Pencil Icon */}
+        <div className="col-span-7 flex flex-col gap-3">
+          {reminders.map((item) => {
+            const isBeingEdited = editingReminderId === item.id;
+            return (
+              <div
+                key={item.id}
+                onClick={() => handleEditReminderClick(item)}
+                className={`flex items-center justify-between rounded-2xl border p-4 transition cursor-pointer ${
+                  isBeingEdited
+                    ? 'border-[#A594F9] bg-[#231C38] shadow-[0_8px_24px_rgba(165,148,249,0.14)]'
+                    : 'border-[#2C253E] bg-[#181424] hover:border-[#41365E]'
+                }`}
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#251E3A] text-[20px]">
+                    {item.icon}
                   </div>
-                  <p className="mt-0.5 text-[12px] text-[#8E87A8] truncate">
-                    {item.message}
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[14.5px] font-bold text-white truncate">
+                        {item.name}
+                      </p>
+                      <span className="rounded-full bg-[#241E36] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
+                        Every {item.frequencyMinutes}m · {item.durationMinutes}m
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[12px] text-[#9E97B8] truncate">
+                      &ldquo;{item.message}&rdquo;
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 ml-3">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTestReminder(item);
+                    }}
+                    className="rounded-lg border border-[#383052] bg-[#1F1A30] px-2.5 py-1.5 text-[11px] font-medium text-[#DDD8F3] hover:bg-[#2C2545] transition cursor-pointer"
+                  >
+                    Preview
+                  </button>
+
+                  {/* Edit Icon (Pencil) Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditReminderClick(item);
+                    }}
+                    title={`Edit ${item.name}`}
+                    aria-label={`Edit ${item.name}`}
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl border transition cursor-pointer ${
+                      isBeingEdited
+                        ? 'border-[#A594F9] bg-[#A594F9] text-[#171329]'
+                        : 'border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#2D2546] hover:text-white'
+                    }`}
+                  >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </button>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2.5 shrink-0 ml-3">
-                <button
-                  type="button"
-                  onClick={() => handleTestReminder(item)}
-                  className="rounded-lg border border-[#383052] bg-[#1F1A30] px-2.5 py-1 text-[11px] font-medium text-[#DDD8F3] hover:bg-[#2C2545] transition cursor-pointer"
-                >
-                  Preview
-                </button>
-
-                {/* Toggle Switch */}
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={item.enabled}
-                  onClick={() => toggleHabitEnabled(item.id)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                    item.enabled ? 'bg-[#A594F9]' : 'bg-[#2C253E]'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-[#151120] transition-transform ${
-                      item.enabled ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Right Column: "New reminder" Creator Card */}
+        {/* Right Column: Editable Reminder / New Reminder Form Card */}
         <form
-          onSubmit={handleSaveNewReminder}
+          onSubmit={handleSubmitForm}
           className="col-span-5 flex flex-col gap-4 rounded-2xl border border-[#342C4C] bg-[#181424] p-5"
         >
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
-            <h3 className="text-[15px] font-bold text-white">New reminder</h3>
-            <span className="text-[11px] font-medium text-[#A594F9]">
-              Custom Habit
+            <h3 className="text-[15px] font-bold text-white">
+              {editingReminderId ? 'Edit reminder' : 'New reminder'}
+            </h3>
+            <span className="rounded-full bg-[#261E42] px-2.5 py-0.5 text-[11px] font-semibold text-[#A594F9]">
+              {editingReminderId ? 'Editing selected' : 'Create mode'}
             </span>
           </div>
 
@@ -249,9 +281,9 @@ export const RemindersView: React.FC = () => {
             </label>
             <input
               type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g., Drink Matcha, Eye Rest..."
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              placeholder="e.g., Drink Water, Bathroom Break..."
               className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
             />
           </div>
@@ -266,19 +298,19 @@ export const RemindersView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() =>
-                    setNewFrequency((f) => Math.max(5, f - 5))
+                    setFormFrequency((f) => Math.max(5, f - 5))
                   }
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
                   −
                 </button>
                 <span className="text-[13px] font-bold tabular-nums">
-                  {newFrequency} min
+                  {formFrequency} min
                 </span>
                 <button
                   type="button"
                   onClick={() =>
-                    setNewFrequency((f) => Math.min(240, f + 5))
+                    setFormFrequency((f) => Math.min(240, f + 5))
                   }
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
@@ -295,19 +327,19 @@ export const RemindersView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() =>
-                    setNewDuration((d) => Math.max(1, d - 1))
+                    setFormDuration((d) => Math.max(1, d - 1))
                   }
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
                   −
                 </button>
                 <span className="text-[13px] font-bold tabular-nums">
-                  {newDuration} min
+                  {formDuration} min
                 </span>
                 <button
                   type="button"
                   onClick={() =>
-                    setNewDuration((d) => Math.min(60, d + 1))
+                    setFormDuration((d) => Math.min(60, d + 1))
                   }
                   className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
                 >
@@ -324,7 +356,7 @@ export const RemindersView: React.FC = () => {
             </span>
             <div className="mt-2 grid grid-cols-7 gap-1.5">
               {DAY_LABELS.map((dayLabel, idx) => {
-                const isSelected = newActiveDays.includes(idx);
+                const isSelected = formActiveDays.includes(idx);
                 return (
                   <button
                     key={idx}
@@ -350,9 +382,9 @@ export const RemindersView: React.FC = () => {
             </label>
             <textarea
               rows={2}
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="What should Mambo say when this triggers?"
+              value={formMessage}
+              onChange={(e) => setFormMessage(e.target.value)}
+              placeholder="What should Mambo say when this reminder triggers?"
               className="mt-1.5 w-full resize-none rounded-xl border border-[#322A4B] bg-[#0E0B16] p-2.5 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
             />
           </div>
@@ -367,9 +399,9 @@ export const RemindersView: React.FC = () => {
                 <button
                   key={icon}
                   type="button"
-                  onClick={() => setNewIcon(icon)}
+                  onClick={() => setFormIcon(icon)}
                   className={`flex h-8 w-8 items-center justify-center rounded-lg text-[15px] transition cursor-pointer ${
-                    newIcon === icon
+                    formIcon === icon
                       ? 'bg-[#3C3173] border border-[#A594F9]'
                       : 'bg-[#120F1D] border border-[#2A233D] hover:bg-[#211B34]'
                   }`}
@@ -384,7 +416,7 @@ export const RemindersView: React.FC = () => {
             type="submit"
             className="mt-auto w-full rounded-xl bg-[#A594F9] py-2.5 text-[13px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] transition cursor-pointer"
           >
-            Save Reminder
+            {editingReminderId ? 'Update Reminder' : 'Save New Reminder'}
           </button>
         </form>
       </div>
