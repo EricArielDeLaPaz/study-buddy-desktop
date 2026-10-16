@@ -8,6 +8,7 @@ import {
 import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad } from './components/scratchpad/Scratchpad';
 import { FocusController } from './components/focus/FocusController';
+import { FloatingMascotDock } from './components/companion/FloatingMascotDock';
 import { OverlayKind } from './types/buddy';
 import type {
   OverlayTriggerType,
@@ -125,7 +126,20 @@ const StudyBuddyViewport: React.FC = () => {
         <FocusController />
       </div>
 
-      {/* 3. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {/* 3. Persistent Mini Companion Floating Dock (Visible when no CenterOverlay is active) */}
+      <div
+        className="pointer-events-auto"
+        onMouseEnter={() =>
+          handleInteractiveRegionHover('floating-mascot-dock-shell', true)
+        }
+        onMouseLeave={() =>
+          handleInteractiveRegionHover('floating-mascot-dock-shell', false)
+        }
+      >
+        <FloatingMascotDock />
+      </div>
+
+      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
       {activeOverlay !== null && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none transition-opacity duration-300"
@@ -145,7 +159,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 4. Floating Collapsible Dev Trigger Bar */}
+      {/* 5. Floating Collapsible Dev Trigger Bar */}
       <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 pointer-events-none">
         <div
           onMouseEnter={() =>

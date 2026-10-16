@@ -1,7 +1,10 @@
 // src/renderer/src/components/overlays/CenterOverlay.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { AnimationPlaceholder } from '../common/AnimationPlaceholder';
+import {
+  ChibiCompanion,
+  ChibiCompanionMode,
+} from '../companion/ChibiCompanion';
 
 /**
  * Formats seconds into MM:SS (e.g., 300 -> "05:00", 600 -> "10:00").
@@ -65,7 +68,6 @@ export const CenterOverlay: React.FC = () => {
 
   const {
     kind,
-    animationSlot,
     buddyName,
     message,
     targetAppOrSite = 'Discord',
@@ -73,6 +75,15 @@ export const CenterOverlay: React.FC = () => {
 
   const isTimedOverlay =
     kind === 'overlay_hydration' || kind === 'overlay_bathroom';
+
+  // Map the current overlay state to the corresponding ChibiCompanion mode
+  const currentOverlayMode: ChibiCompanionMode = isTimerCompleted
+    ? 'celebrating'
+    : kind === 'overlay_hydration'
+    ? 'hydration'
+    : kind === 'overlay_bathroom'
+    ? 'bathroom'
+    : 'intervention';
 
   const handleSelectIncrement = (secondsToAdd: number) => {
     addOverlayTime(secondsToAdd);
@@ -96,8 +107,8 @@ export const CenterOverlay: React.FC = () => {
         }
         className="relative w-[420px] rounded-[24px] bg-[#221D33] border border-[#342D4B] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] text-white select-none"
       >
-        {/* 512x512 Aspect Avatar Placeholder Card */}
-        <AnimationPlaceholder slot={animationSlot} size={220} />
+        {/* Interactive Vector Chibi Mascot */}
+        <ChibiCompanion mode={currentOverlayMode} size="lg" />
 
         {/* Buddy Name */}
         <h2 className="mt-4 text-center text-[20px] font-bold tracking-tight text-white">
