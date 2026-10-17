@@ -1,9 +1,10 @@
 // src/renderer/src/components/views/RemindersView.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
-  loadUserBuddyPresets,
-  UserBuddyPreset,
+  ActiveCompanionSelection,
+  DEFAULT_ANIMATION_SLOTS,
+  loadActiveCompanionSelection,
 } from './BuddyStudioView';
 
 export interface HabitReminderItem {
@@ -14,17 +15,9 @@ export interface HabitReminderItem {
   activeDays: number[]; // 0..6 for M T W T F S S
   message: string;
   icon: string;
-  characterType: 'developer' | 'custom';
-  animationSlotLabel: string;
+  boundSlotId: string;
+  boundSlotLabel: string;
 }
-
-const DEVELOPER_ANIMATION_OPTIONS = [
-  'Reminder · Drinking water (Default)',
-  'Reminder · Waving / Stretch',
-  'Idle · Studying Loop',
-  'Success · Celebrating Bounce',
-  'Status · Nudge Alert',
-] as const;
 
 const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
   {
@@ -35,8 +28,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4, 5, 6],
     message: "Wohoo good job so far, don't forget to rehydrate!",
     icon: '💧',
-    characterType: 'developer',
-    animationSlotLabel: 'Reminder · Drinking water (Default)',
+    boundSlotId: 'slot-water-break',
+    boundSlotLabel: 'Water break',
   },
   {
     id: 'rem-bathroom',
@@ -46,8 +39,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4, 5, 6],
     message: 'Bathroom Break time!',
     icon: '🚻',
-    characterType: 'developer',
-    animationSlotLabel: 'Reminder · Waving / Stretch',
+    boundSlotId: 'slot-break-stretch',
+    boundSlotLabel: 'Break time stretch',
   },
   {
     id: 'rem-posture',
@@ -57,8 +50,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4],
     message: 'Sit tall, relax your shoulders, and align your screen.',
     icon: '🪑',
-    characterType: 'developer',
-    animationSlotLabel: 'Idle · Studying Loop',
+    boundSlotId: 'slot-study-focus',
+    boundSlotLabel: 'Study focus loop',
   },
   {
     id: 'rem-stretch',
@@ -68,8 +61,8 @@ const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
     activeDays: [0, 1, 2, 3, 4],
     message: 'Roll your shoulders and stretch your wrists!',
     icon: '🧘',
-    characterType: 'developer',
-    animationSlotLabel: 'Reminder · Waving / Stretch',
+    boundSlotId: 'slot-break-stretch',
+    boundSlotLabel: 'Break time stretch',
   },
 ];
 
@@ -77,28 +70,38 @@ const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const ICON_CHOICES = ['💧', '🚻', '🪑', '🧘', '🚶', '🌬️', '📝', '🍵'] as const;
 
 export const RemindersView: React.FC = () => {
-  const { triggerOverlay } = useApp();
+  const { triggerOverlay, setCurrentAnimationSlot } = useApp();
 
   const [reminders, setReminders] = useState<HabitReminderItem[]>(
     DEFAULT_REMINDERS_ROSTER
   );
 
-  const [userPresets] = useState<UserBuddyPreset[]>(loadUserBuddyPresets);
-  const customBuddies = userPresets.filter((p) => p.source === 'Custom');
+  // Dynamically read the active buddy and its defined animation slots
+  const [activeBuddy, setActiveBuddy] = useState<ActiveCompanionSelection>(
+    loadActiveCompanionSelection
+  );
 
-  // Build custom animation sequence options from user-created custom buddies
-  const customAnimationOptions: string[] =
-    customBuddies.length > 0
-      ? customBuddies.flatMap((buddy) => [
-          `${buddy.name} · Custom Hydration Sequence`,
-          `${buddy.name} · Custom Break Sequence`,
-          `${buddy.name} · Custom Idle Sequence`,
-          `${buddy.name} · Custom Alert Sequence`,
-        ])
-      : [
-          'Midnight Matcha · Custom Hydration Sequence',
-          'Midnight Matcha · Custom Break Sequence',
-        ];
+  useEffect(() => {
+    const handleSyncCompanion = () => {
+      setActiveBuddy(loadActiveCompanionSelection());
+    };
+    window.addEventListener(
+      'study-buddy:companion-updated',
+      handleSyncCompanion
+    );
+    return () => {
+      window.removeEventListener(
+        'study-buddy:companion-updated',
+        handleSyncCompanion
+      );
+    };
+  }, []);
+
+  // Strictly scope available slots based on whether active buddy is Custom vs Progression/Marketplace
+  const availableBuddySlots =
+    activeBuddy.slots && activeBuddy.slots.length > 0
+      ? activeBuddy.slots
+      : DEFAULT_ANIMATION_SLOTS;
 
   const [editingReminderId, setEditingReminderId] = useState<string | null>(
     DEFAULT_REMINDERS_ROSTER[0].id
@@ -123,12 +126,16 @@ export const RemindersView: React.FC = () => {
   const [formIcon, setFormIcon] = useState<string>(
     DEFAULT_REMINDERS_ROSTER[0].icon
   );
-  const [formCharacterType, setFormCharacterType] = useState<
-    'developer' | 'custom'
-  >(DEFAULT_REMINDERS_ROSTER[0].characterType);
-  const [formAnimationSlot, setFormAnimationSlot] = useState<string>(
-    DEFAULT_REMINDERS_ROSTER[0].animationSlotLabel
+  const [formSlotId, setFormSlotId] = useState<string>(
+    () => availableBuddySlots[0]?.id ?? 'slot-water-break'
   );
+
+  // Keep selected slot valid if active buddy changes
+  useEffect(() => {
+    if (!availableBuddySlots.some((s) => s.id === formSlotId)) {
+      setFormSlotId(availableBuddySlots[0]?.id ?? '');
+    }
+  }, [availableBuddySlots, formSlotId]);
 
   const handleEditReminderClick = (item: HabitReminderItem) => {
     setEditingReminderId(item.id);
@@ -138,8 +145,13 @@ export const RemindersView: React.FC = () => {
     setFormActiveDays(item.activeDays);
     setFormMessage(item.message);
     setFormIcon(item.icon);
-    setFormCharacterType(item.characterType);
-    setFormAnimationSlot(item.animationSlotLabel);
+    const matchingSlot =
+      availableBuddySlots.find(
+        (s) => s.id === item.boundSlotId || s.label === item.boundSlotLabel
+      ) ?? availableBuddySlots[0];
+    if (matchingSlot) {
+      setFormSlotId(matchingSlot.id);
+    }
   };
 
   const handleStartNewReminder = () => {
@@ -150,17 +162,7 @@ export const RemindersView: React.FC = () => {
     setFormActiveDays([0, 1, 2, 3, 4]);
     setFormMessage('');
     setFormIcon('💧');
-    setFormCharacterType('developer');
-    setFormAnimationSlot(DEVELOPER_ANIMATION_OPTIONS[0]);
-  };
-
-  const handleSwitchCharacterType = (type: 'developer' | 'custom') => {
-    setFormCharacterType(type);
-    if (type === 'developer') {
-      setFormAnimationSlot(DEVELOPER_ANIMATION_OPTIONS[0]);
-    } else {
-      setFormAnimationSlot(customAnimationOptions[0]);
-    }
+    setFormSlotId(availableBuddySlots[0]?.id ?? '');
   };
 
   const toggleDaySelection = (dayIndex: number) => {
@@ -175,6 +177,10 @@ export const RemindersView: React.FC = () => {
     e.preventDefault();
     if (!formName.trim()) return;
 
+    const chosenSlot =
+      availableBuddySlots.find((s) => s.id === formSlotId) ??
+      availableBuddySlots[0];
+
     const updatedPayload: HabitReminderItem = {
       id: editingReminderId ?? `rem-${Date.now()}`,
       name: formName.trim(),
@@ -184,10 +190,10 @@ export const RemindersView: React.FC = () => {
         formActiveDays.length > 0 ? formActiveDays : [0, 1, 2, 3, 4],
       message:
         formMessage.trim() ||
-        `Time for your ${formName.trim()} check-in with Mambo!`,
+        `Time for your ${formName.trim()} check-in with ${activeBuddy.name}!`,
       icon: formIcon,
-      characterType: formCharacterType,
-      animationSlotLabel: formAnimationSlot,
+      boundSlotId: chosenSlot?.id ?? 'slot-water-break',
+      boundSlotLabel: chosenSlot?.label ?? 'Water break',
     };
 
     if (editingReminderId) {
@@ -202,30 +208,44 @@ export const RemindersView: React.FC = () => {
     }
   };
 
-  const handleTestReminder = (item: HabitReminderItem) => {
-    const kind =
-      item.name.toLowerCase().includes('water') ||
-      item.animationSlotLabel.toLowerCase().includes('water') ||
-      item.animationSlotLabel.toLowerCase().includes('hydration')
-        ? 'overlay_hydration'
-        : 'overlay_bathroom';
+  const handleTriggerBoundReminder = (item: HabitReminderItem) => {
+    const boundSlot = availableBuddySlots.find(
+      (s) => s.id === item.boundSlotId || s.label === item.boundSlotLabel
+    );
 
-    triggerOverlay(kind, {
-      durationSeconds: item.durationMinutes * 60,
-      message: item.message,
-    });
+    const isHydrationSlot =
+      boundSlot?.mode === 'hydration' ||
+      item.boundSlotLabel.toLowerCase().includes('water') ||
+      item.boundSlotLabel.toLowerCase().includes('matcha');
+
+    setCurrentAnimationSlot(
+      isHydrationSlot ? 'reminder_drinking_water' : 'reminder_bathroom'
+    );
+
+    triggerOverlay(
+      isHydrationSlot ? 'overlay_hydration' : 'overlay_bathroom',
+      {
+        durationSeconds: item.durationMinutes * 60,
+        message: item.message,
+      }
+    );
   };
 
   return (
-    <div className="flex flex-col gap-5 p-6 text-white">
+    <div className="flex flex-col gap-5 p-6 text-white font-sans">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[22px] font-bold tracking-tight text-white">
+          <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
             Wellness & Study Reminders
           </h2>
           <p className="mt-1 text-[13px] text-[#9E97B8]">
-            Click the edit pencil on any reminder to customize its cadence, animation slot, and Mambo message.
+            Bind reminders directly to{' '}
+            <span className="font-semibold text-[#C4B5FD]">
+              {activeBuddy.name}
+            </span>{' '}
+            ({activeBuddy.kind === 'Custom' ? 'Custom Buddy' : 'Pre-packaged'}{' '}
+            animation slots).
           </p>
         </div>
 
@@ -250,12 +270,12 @@ export const RemindersView: React.FC = () => {
                 onClick={() => handleEditReminderClick(item)}
                 className={`flex items-center justify-between rounded-2xl border p-4 transition cursor-pointer ${
                   isBeingEdited
-                    ? 'border-[#A594F9] bg-[#231C38] shadow-[0_8px_24px_rgba(165,148,249,0.14)]'
-                    : 'border-[#2C253E] bg-[#181424] hover:border-[#41365E]'
+                    ? 'border-[#A594F9] bg-[#261E42] shadow-[0_8px_24px_rgba(165,148,249,0.16)]'
+                    : 'border-[#2C253E] bg-[#181424] hover:border-[#4E4187]'
                 }`}
               >
                 <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#251E3A] text-[20px]">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#261E42] text-[20px]">
                     {item.icon}
                   </div>
                   <div className="min-w-0">
@@ -263,11 +283,11 @@ export const RemindersView: React.FC = () => {
                       <p className="text-[14.5px] font-bold text-white truncate">
                         {item.name}
                       </p>
-                      <span className="rounded-full bg-[#241E36] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
+                      <span className="rounded-full bg-[#141020] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
                         Every {item.frequencyMinutes}m · {item.durationMinutes}m
                       </span>
-                      <span className="rounded-md bg-[#161224] border border-[#322A4B] px-2 py-0.5 text-[10px] font-medium text-[#C4B5FD] truncate max-w-[190px]">
-                        🎬 {item.animationSlotLabel}
+                      <span className="rounded-md bg-[#141020] border border-[#4E4187] px-2 py-0.5 text-[10px] font-semibold text-[#C4B5FD] truncate">
+                        🎬 {item.boundSlotLabel}
                       </span>
                     </div>
                     <p className="mt-1 text-[12px] text-[#9E97B8] truncate">
@@ -281,9 +301,9 @@ export const RemindersView: React.FC = () => {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleTestReminder(item);
+                      handleTriggerBoundReminder(item);
                     }}
-                    className="rounded-lg border border-[#383052] bg-[#1F1A30] px-2.5 py-1.5 text-[11px] font-medium text-[#DDD8F3] hover:bg-[#2C2545] transition cursor-pointer"
+                    className="rounded-lg border border-[#4E4187] bg-[#1F1A30] px-2.5 py-1.5 text-[11px] font-medium text-[#DDD8F3] hover:bg-[#2C2545] transition cursor-pointer"
                   >
                     Preview
                   </button>
@@ -323,10 +343,10 @@ export const RemindersView: React.FC = () => {
           })}
         </div>
 
-        {/* Right Column: Editable Reminder / New Reminder Form Card with Animation Slot Picker */}
+        {/* Right Column: Editable Reminder Form with Dynamic Active Buddy Animation Slot Picker */}
         <form
           onSubmit={handleSubmitForm}
-          className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#342C4C] bg-[#181424] p-5"
+          className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#4E4187] bg-[#181424] p-5"
         >
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
             <h3 className="text-[15px] font-bold text-white">
@@ -406,54 +426,32 @@ export const RemindersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Animation Slot Picker (Unlocked Developer Character vs Custom Uploaded Buddy) */}
-          <div className="rounded-xl border border-[#2E2744] bg-[#120F1D] p-3">
+          {/* Dynamic Active Buddy Animation Slot Picker */}
+          <div className="rounded-xl border border-[#4E4187] bg-[#120F1D] p-3">
             <div className="flex items-center justify-between">
               <label className="text-[12px] font-semibold text-[#E2DFF0]">
-                Animation Slot Picker
+                Animation Slot ({activeBuddy.name})
               </label>
-              <div className="flex rounded-lg bg-[#1A1528] p-0.5 border border-[#2E2744]">
-                <button
-                  type="button"
-                  onClick={() => handleSwitchCharacterType('developer')}
-                  className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold transition cursor-pointer ${
-                    formCharacterType === 'developer'
-                      ? 'bg-[#A594F9] text-[#171329]'
-                      : 'text-[#9E97B8] hover:text-white'
-                  }`}
-                >
-                  Unlocked Buddy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSwitchCharacterType('custom')}
-                  className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold transition cursor-pointer ${
-                    formCharacterType === 'custom'
-                      ? 'bg-[#A594F9] text-[#171329]'
-                      : 'text-[#9E97B8] hover:text-white'
-                  }`}
-                >
-                  Custom Buddy
-                </button>
-              </div>
+              <span className="rounded-full bg-[#261E42] px-2 py-0.5 text-[10px] font-bold text-[#A594F9]">
+                {activeBuddy.kind === 'Custom'
+                  ? 'Custom Uploaded Slots'
+                  : 'Pre-packaged Slots'}
+              </span>
             </div>
 
             <select
-              value={formAnimationSlot}
-              onChange={(e) => setFormAnimationSlot(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[12px] font-medium text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
+              value={formSlotId}
+              onChange={(e) => setFormSlotId(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[12px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
             >
-              {formCharacterType === 'developer'
-                ? DEVELOPER_ANIMATION_OPTIONS.map((anim) => (
-                    <option key={anim} value={anim}>
-                      {anim}
-                    </option>
-                  ))
-                : customAnimationOptions.map((anim) => (
-                    <option key={anim} value={anim}>
-                      {anim}
-                    </option>
-                  ))}
+              {availableBuddySlots.map((slot) => (
+                <option key={slot.id} value={slot.id}>
+                  {slot.label} ({slot.slotKey})
+                  {slot.uploadedAnimation?.fileName
+                    ? ` · ${slot.uploadedAnimation.fileName}`
+                    : ''}
+                </option>
+              ))}
             </select>
           </div>
 

@@ -1,3 +1,218 @@
+/* src/renderer/src/assets/main.css */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=Fredoka:wght@500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root,
+  html.dark {
+    /* Typography Tokens */
+    --font-display: 'Fredoka', cursive, sans-serif;
+    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+    /* Border Radius Tokens */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+
+    /* Semantic Backgrounds (Dark Default) */
+    --bg-app: #141020;
+    --bg-surface: #181424;
+    --bg-elevated: #221d33;
+    --bg-inset: #0e0b16;
+
+    /* Semantic Borders */
+    --border-default: #2c253e;
+    --border-strong: #4e4187;
+
+    /* Semantic Text */
+    --text-primary: #ffffff;
+    --text-secondary: #e2dff0;
+    --text-muted: #9e97b8;
+
+    /* Semantic Accent (Strict Purple / Indigo — Zero Blue Drift) */
+    --accent-primary: #a594f9;
+    --accent-primary-hover: #b5a7fa;
+    --accent-on-primary: #171329;
+    --accent-subtle: #261e42;
+    --accent-subtle-text: #c4b5fd;
+
+    /* Pink Accent Tokens */
+    --pink-primary: #f472b6;
+    --pink-subtle: #491d2e;
+
+    /* Status Tokens */
+    --status-success: #4ade80;
+    --status-success-subtle: #0e362d;
+    --status-warning: #fbbf24;
+    --status-warning-subtle: #3a2813;
+    --status-danger: #f87171;
+    --status-danger-subtle: #3b1d2e;
+
+    /* Chat / Mascot Bubble Tokens */
+    --bubble-bg: #3c3173;
+    --bubble-text: #ffffff;
+  }
+
+  html.light {
+    /* Semantic Backgrounds (Light Mode) */
+    --bg-app: #f5f3ff;
+    --bg-surface: #ffffff;
+    --bg-elevated: #ede9fe;
+    --bg-inset: #f0abfc14;
+
+    /* Semantic Borders (Light Mode) */
+    --border-default: #ddd6fe;
+    --border-strong: #8b5cf6;
+
+    /* Semantic Text (Light Mode) */
+    --text-primary: #1e1b4b;
+    --text-secondary: #312e81;
+    --text-muted: #6d6591;
+
+    /* Semantic Accent (Light Mode Purple / Indigo) */
+    --accent-primary: #7c3aed;
+    --accent-primary-hover: #6d28d9;
+    --accent-on-primary: #ffffff;
+    --accent-subtle: #ede9fe;
+    --accent-subtle-text: #5b21b6;
+
+    /* Pink Accent Tokens (Light Mode) */
+    --pink-primary: #db2777;
+    --pink-subtle: #fce7f3;
+
+    /* Status Tokens (Light Mode) */
+    --status-success: #16a34a;
+    --status-success-subtle: #dcfce7;
+    --status-warning: #d97706;
+    --status-warning-subtle: #fef3c7;
+    --status-danger: #dc2626;
+    --status-danger-subtle: #fee2e2;
+
+    /* Chat / Mascot Bubble Tokens (Light Mode) */
+    --bubble-bg: #5b21b6;
+    --bubble-text: #ffffff;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+    background-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Font Family Utilities */
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+/* Semantic Token Utility Classes */
+.bg-token-app {
+  background-color: var(--bg-app);
+}
+.bg-token-surface {
+  background-color: var(--bg-surface);
+}
+.bg-token-elevated {
+  background-color: var(--bg-elevated);
+}
+.bg-token-inset {
+  background-color: var(--bg-inset);
+}
+
+.border-token-default {
+  border-color: var(--border-default);
+}
+.border-token-strong {
+  border-color: var(--border-strong);
+}
+
+.text-token-primary {
+  color: var(--text-primary);
+}
+.text-token-secondary {
+  color: var(--text-secondary);
+}
+.text-token-muted {
+  color: var(--text-muted);
+}
+
+.bg-token-accent {
+  background-color: var(--accent-primary);
+  color: var(--accent-on-primary);
+}
+.bg-token-accent:hover {
+  background-color: var(--accent-primary-hover);
+}
+.bg-token-accent-subtle {
+  background-color: var(--accent-subtle);
+  color: var(--accent-subtle-text);
+}
+
+.bg-token-bubble {
+  background-color: var(--bubble-bg);
+  color: var(--bubble-text);
+}
+
+/* Light Mode Adaptive Surface Overrides for Shell & Views */
+html.light .bg-\[\#141020\] {
+  background-color: var(--bg-app) !important;
+}
+html.light .bg-\[\#181424\],
+html.light .bg-\[\#1A1626\] {
+  background-color: var(--bg-surface) !important;
+}
+html.light .bg-\[\#120F1D\],
+html.light .bg-\[\#0E0B16\],
+html.light .bg-\[\#0F0C18\] {
+  background-color: #ede9fe !important;
+}
+html.light .bg-\[\#261E42\],
+html.light .bg-\[\#241E36\] {
+  background-color: var(--accent-subtle) !important;
+}
+html.light .border-\[\#2C253E\],
+html.light .border-\[\#322A4B\],
+html.light .border-\[\#342C4C\],
+html.light .border-\[\#262038\],
+html.light .border-\[\#241E36\] {
+  border-color: var(--border-default) !important;
+}
+html.light .text-white {
+  color: var(--text-primary) !important;
+}
+html.light .text-\[\#E2DFF0\],
+html.light .text-\[\#DDD8F3\],
+html.light .text-\[\#B8B2CC\] {
+  color: var(--text-secondary) !important;
+}
+html.light .text-\[\#9E97B8\],
+html.light .text-\[\#8E87A8\] {
+  color: var(--text-muted) !important;
+}
+
+/* Thin Horizontal & Vertical Scrollbar Styling */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(14, 11, 22, 0.35);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(165, 148, 249, 0.45);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(165, 148, 249, 0.75);
+}
