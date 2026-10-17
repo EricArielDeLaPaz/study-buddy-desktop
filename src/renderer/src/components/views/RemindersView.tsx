@@ -6,6 +6,7 @@ import {
   DEFAULT_ANIMATION_SLOTS,
   loadActiveCompanionSelection,
 } from './BuddyStudioView';
+import { ConfirmModal } from '../common/ConfirmModal';
 
 export interface HabitReminderItem {
   id: string;
@@ -105,6 +106,9 @@ export const RemindersView: React.FC = () => {
     DEFAULT_REMINDERS_ROSTER[0].id
   );
 
+  // Confirmation modal state for deleting a reminder
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
+
   // Right-Side Form Fields
   const [formName, setFormName] = useState<string>(
     DEFAULT_REMINDERS_ROSTER[0].name
@@ -179,6 +183,18 @@ export const RemindersView: React.FC = () => {
     setFormMessage('');
     setFormIcon('💧');
     setFormSlotId(availableBuddySlots[0]?.id ?? '');
+  };
+
+  const handleConfirmDeleteReminder = () => {
+    if (!editingReminderId) return;
+    const remaining = reminders.filter((r) => r.id !== editingReminderId);
+    setReminders(remaining);
+
+    if (remaining.length > 0) {
+      handleEditReminderClick(remaining[0]);
+    } else {
+      handleStartNewReminder();
+    }
   };
 
   const toggleDaySelection = (dayIndex: number) => {
@@ -334,7 +350,7 @@ export const RemindersView: React.FC = () => {
                     aria-label={`Edit ${item.name}`}
                     className={`flex h-9 w-9 items-center justify-center rounded-xl border transition cursor-pointer ${
                       isBeingEdited
-                        ? 'border-[#A594F9] bg-[#A594F9] text-[#141324]'
+                        ? 'border-[#A594F9] bg-[#A594F9] text-[#12111A]'
                         : 'border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#2D2546] hover:text-white'
                     }`}
                   >
@@ -358,7 +374,7 @@ export const RemindersView: React.FC = () => {
           })}
         </div>
 
-        {/* Right Column: Editable Reminder Form (Clean Unified Animation Slot Dropdown) */}
+        {/* Right Column: Editable Reminder Form with "Delete Reminder" Action */}
         <form
           onSubmit={handleSubmitForm}
           className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#52438F] bg-[#181424] p-5"
@@ -367,9 +383,20 @@ export const RemindersView: React.FC = () => {
             <h3 className="text-[15px] font-bold text-white">
               {editingReminderId ? 'Edit reminder' : 'New reminder'}
             </h3>
-            <span className="rounded-full bg-[#2A244D] px-2.5 py-0.5 text-[11px] font-semibold text-[#C4B5FD]">
-              {editingReminderId ? 'Editing selected' : 'Create mode'}
-            </span>
+
+            {editingReminderId ? (
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="text-red-400 hover:text-red-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Delete Reminder
+              </button>
+            ) : (
+              <span className="rounded-full bg-[#2A244D] px-2.5 py-0.5 text-[11px] font-semibold text-[#C4B5FD]">
+                Create mode
+              </span>
+            )}
           </div>
 
           {/* Name Input */}
@@ -382,7 +409,7 @@ export const RemindersView: React.FC = () => {
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder="e.g., Drink Water, Bathroom Break..."
-              className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+              className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
             />
           </div>
 
@@ -441,7 +468,7 @@ export const RemindersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Clean Unified Animation Slot Dropdown (Badge & Helper Text Removed) */}
+          {/* Clean Unified Animation Slot Dropdown */}
           <div className="relative" ref={slotDropdownRef}>
             <label className="block text-[12px] font-medium text-[#B8B2CC]">
               Animation Slot
@@ -507,7 +534,7 @@ export const RemindersView: React.FC = () => {
                     onClick={() => toggleDaySelection(idx)}
                     className={`h-8 rounded-lg text-[12px] font-bold transition cursor-pointer ${
                       isSelected
-                        ? 'bg-[#A594F9] text-[#141324]'
+                        ? 'bg-[#A594F9] text-[#12111A]'
                         : 'bg-[#120F1D] border border-[#2A233D] text-[#8E87A8] hover:text-white'
                     }`}
                   >
@@ -528,7 +555,7 @@ export const RemindersView: React.FC = () => {
               value={formMessage}
               onChange={(e) => setFormMessage(e.target.value)}
               placeholder="What should Mambo say when this reminder triggers?"
-              className="mt-1.5 w-full resize-none rounded-xl border border-[#322A4B] bg-[#0E0B16] p-2.5 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+              className="mt-1.5 w-full resize-none rounded-xl border border-[#322A4B] bg-[#0E0B16] p-2.5 text-[12.5px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
             />
           </div>
 
@@ -557,12 +584,22 @@ export const RemindersView: React.FC = () => {
 
           <button
             type="submit"
-            className="mt-auto w-full rounded-xl bg-[#A594F9] py-2.5 text-[13px] font-bold text-[#141324] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer"
+            className="mt-auto w-full rounded-xl bg-[#A594F9] py-2.5 text-[13px] font-bold text-[#12111A] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer"
           >
             {editingReminderId ? 'Update Reminder' : 'Save New Reminder'}
           </button>
         </form>
       </div>
+
+      {/* Confirmation Modal for Deleting a Reminder */}
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        title={`Delete "${formName || 'Reminder'}"?`}
+        description="This reminder and its scheduled cadence will be permanently removed from your active wellness roster."
+        confirmLabel="Delete Reminder"
+        onConfirm={handleConfirmDeleteReminder}
+        onCancel={() => setIsDeleteModalOpen(false)}
+      />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 // src/main/index.ts
 import { app, shell, BrowserWindow, ipcMain, screen, dialog } from 'electron';
 import { join } from 'path';
-import { writeFile } from 'fs/promises';
+import { writeFile, readFile } from 'fs/promises';
 
 export type OverlayTriggerType = 'hydration' | 'bathroom' | 'intervention';
 
@@ -13,6 +13,11 @@ export interface OverlayTriggerPayload {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
+
+app.on('before-quit', () => {
+  isQuitting = true;
+});
 
 function createMainWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -21,13 +26,17 @@ function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width,
     height,
+    minWidth: 960,
+    minHeight: 640,
     x: 0,
     y: 0,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
     hasShadow: false,
-    resizable: false,
+    resizable: true,
+    maximizable: false,
+    fullscreenable: false,
     skipTaskbar: false,
     backgroundColor: '#00000000',
     webPreferences: {
@@ -38,7 +47,7 @@ function createMainWindow(): BrowserWindow {
     },
   });
 
-  // Float above fullscreen and standard desktop spaces
+  // Float above standard desktop workspaces while respecting fullscreen disabling
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
@@ -47,6 +56,22 @@ function createMainWindow(): BrowserWindow {
 
   win.on('ready-to-show', () => {
     win.show();
+  });
+
+  /**
+   * Slack-style Close Interception:
+   * Instead of quitting the app when the user closes the window, prevent default,
+   * keep the transparent Electron overlay alive, and notify the renderer to switch
+   * into the compact floating Mambo Companion mode.
+   */
+  win.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      if (!win.isDestroyed()) {
+        win.webContents.send('buddy:minimize-to-companion');
+        win.setIgnoreMouseEvents(true, { forward: true });
+      }
+    }
   });
 
   win.on('closed', () => {
@@ -84,17 +109,18 @@ export function dispatchOverlayTrigger(
 function registerIpcHandlers(): void {
   /**
    * 1. Dynamic Mouse Click-Through Toggle
-   * Safely resolves the target BrowserWindow and applies:
-   * win.setIgnoreMouseEvents(ignore, { forward: forward ?? false })
    */
   ipcMain.on(
     'buddy:set-ignore-mouse-events',
-    (event, ignore: boolean, forward?: boolean) => {
+    (event, ignore: boolean, forward?: boolean | { forward?: boolean }) => {
       const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
       if (!win || win.isDestroyed()) return;
 
+      const shouldForward =
+        typeof forward === 'boolean' ? forward : (forward?.forward ?? true);
+
       if (ignore) {
-        win.setIgnoreMouseEvents(true, { forward: forward ?? false });
+        win.setIgnoreMouseEvents(true, { forward: shouldForward });
       } else {
         win.setIgnoreMouseEvents(false);
       }
@@ -103,7 +129,6 @@ function registerIpcHandlers(): void {
 
   /**
    * 2. Native System Save Dialog for Markdown Export
-   * Receives { content, filename } from window.electronAPI.exportMarkdown(content, filename)
    */
   ipcMain.handle(
     'buddy:export-markdown',
@@ -120,14 +145,13 @@ function registerIpcHandlers(): void {
         ? payload.filename.endsWith('.md')
           ? payload.filename
           : `${payload.filename}.md`
-        : 'scratchpad-notes.md';
+        : 'study-notepad.md';
 
       try {
-        // Ensure window captures mouse events while the modal save dialog is active
         win.setIgnoreMouseEvents(false);
 
         const { canceled, filePath } = await dialog.showSaveDialog(win, {
-          title: 'Export Scratchpad Note as Markdown',
+          title: 'Export Notepad as Markdown',
           defaultPath: join(app.getPath('documents'), normalizedFilename),
           buttonLabel: 'Export .md',
           filters: [
@@ -150,6 +174,33 @@ function registerIpcHandlers(): void {
       }
     }
   );
+
+  /**
+   * 3. Native Open Note Dialog
+   */
+  ipcMain.handle('buddy:open-note', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    if (!win || win.isDestroyed()) return { canceled: true };
+
+    win.setIgnoreMouseEvents(false);
+
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Open Markdown or Text Note',
+      properties: ['openFile'],
+      filters: [{ name: 'Notes', extensions: ['md', 'markdown', 'txt'] }],
+    });
+
+    if (!canceled && filePaths.length > 0) {
+      const content = await readFile(filePaths[0], 'utf-8');
+      return {
+        canceled: false,
+        filePath: filePaths[0],
+        content,
+      };
+    }
+
+    return { canceled: true };
+  });
 }
 
 app.whenReady().then(() => {
@@ -159,6 +210,8 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
+    } else if (mainWindow) {
+      mainWindow.show();
     }
   });
 });

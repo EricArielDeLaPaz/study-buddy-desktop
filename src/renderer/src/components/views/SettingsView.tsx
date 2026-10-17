@@ -1,12 +1,17 @@
 // src/renderer/src/components/views/SettingsView.tsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { useApp } from '../../context/AppContext';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { playChime, ChimeType } from '../../utils/audio';
+import { ConfirmModal } from '../common/ConfirmModal';
 
 export type AppearanceMode = 'dark' | 'light' | 'system';
-type DefaultDisplayMode = 'dashboard' | 'companion_only' | 'compact_hud';
 
 export const THEME_STORAGE_KEY = 'study_buddy_theme_mode';
+const CUSTOM_CHIME_STORAGE_KEY = 'study_buddy_custom_chime_v1';
+
+interface CustomAudioChime {
+  name: string;
+  dataUrl: string;
+}
 
 export function applyThemeToDocument(mode: AppearanceMode): void {
   if (typeof document === 'undefined') return;
@@ -24,7 +29,7 @@ export function applyThemeToDocument(mode: AppearanceMode): void {
   root.setAttribute('data-theme', resolvedTheme);
 }
 
-// Initialize theme to 'system' (Match system) immediately on module load if not overridden
+// Default to 'system' (Match system) on initial load
 if (typeof window !== 'undefined') {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY) as AppearanceMode;
@@ -39,9 +44,7 @@ if (typeof window !== 'undefined') {
 }
 
 export const SettingsView: React.FC = () => {
-  const { scratchpad, exportScratchpadToMarkdown } = useApp();
-
-  // Default to 'system' (Match system) on initial load
+  // 1. Appearance Card State (Default: Match system)
   const [appearance, setAppearance] = useState<AppearanceMode>(() => {
     try {
       const saved = localStorage.getItem(THEME_STORAGE_KEY) as AppearanceMode;
@@ -54,17 +57,36 @@ export const SettingsView: React.FC = () => {
     return 'system';
   });
 
-  const [displayMode, setDisplayMode] =
-    useState<DefaultDisplayMode>('dashboard');
+  // 2. Behavior Card State
+  const [launchAtStartup, setLaunchAtStartup] = useState<boolean>(true);
+  const [soundsEnabled, setSoundsEnabled] = useState<boolean>(true);
+  const [selectedChime, setSelectedChime] = useState<ChimeType | 'custom'>(
+    'gentle_bell'
+  );
+  const [customChime, setCustomChime] = useState<CustomAudioChime | null>(
+    () => {
+      try {
+        const raw = localStorage.getItem(CUSTOM_CHIME_STORAGE_KEY);
+        return raw ? (JSON.parse(raw) as CustomAudioChime) : null;
+      } catch {
+        return null;
+      }
+    }
+  );
+  const chimeFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Card 3: Audio & Companion Chimes State
-  const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
-  const [selectedChime, setSelectedChime] =
-    useState<ChimeType>('gentle_bell');
+  // 3. Account Card State
+  const [accountEmail, setAccountEmail] = useState<string>(
+    'maya.student@email.com'
+  );
+  const [accountNotice, setAccountNotice] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<
+    'sign_out' | 'delete_account' | null
+  >(null);
 
-  // Card 4: Account & Cloud Sync State
-  const [lastSyncedLabel, setLastSyncedLabel] =
-    useState<string>('Synced automatically upon login');
+  // 4. Alerts Card State
+  const [routeRemindersToPhoneOnly, setRouteRemindersToPhoneOnly] =
+    useState<boolean>(false);
 
   const handleSelectAppearance = useCallback((nextMode: AppearanceMode) => {
     setAppearance(nextMode);
@@ -86,21 +108,89 @@ export const SettingsView: React.FC = () => {
     return () => mediaQuery.removeEventListener('change', listener);
   }, [appearance]);
 
+  // Play chime automatically when any chime option is clicked
+  const handleSelectAndPlayChime = (chimeId: ChimeType | 'custom') => {
+    setSelectedChime(chimeId);
+    if (!soundsEnabled) return;
+
+    if (chimeId === 'custom' && customChime?.dataUrl) {
+      try {
+        const audio = new Audio(customChime.dataUrl);
+        audio.volume = 0.65;
+        audio.play().catch(() => {
+          playChime('gentle_bell');
+        });
+      } catch {
+        playChime('gentle_bell');
+      }
+    } else if (chimeId !== 'custom') {
+      playChime(chimeId);
+    }
+  };
+
+  // Import custom local audio file via "Upload Chime"
+  const handleUploadChimeFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        const uploaded: CustomAudioChime = {
+          name: file.name.replace(/\.(mp3|wav|ogg|m4a)$/i, ''),
+          dataUrl: reader.result,
+        };
+        setCustomChime(uploaded);
+        setSelectedChime('custom');
+        try {
+          localStorage.setItem(
+            CUSTOM_CHIME_STORAGE_KEY,
+            JSON.stringify(uploaded)
+          );
+        } catch {
+          // Ignore quota error
+        }
+
+        if (soundsEnabled) {
+          try {
+            const audio = new Audio(uploaded.dataUrl);
+            audio.volume = 0.65;
+            audio.play().catch(() => {});
+          } catch {
+            // Ignore audio playback error
+          }
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmAccountAction = () => {
+    if (confirmAction === 'sign_out') {
+      setAccountNotice('Signed out of maya.student@email.com');
+    } else if (confirmAction === 'delete_account') {
+      setAccountEmail('Account scheduled for deletion');
+      setAccountNotice('Your account and cloud profile have been removed.');
+    }
+  };
+
   return (
     <div className="flex flex-col gap-5 p-6 text-white font-sans">
+      {/* Header */}
       <div>
         <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
-          Application Settings
+          Settings
         </h2>
-        <p className="mt-1 text-[13px] text-[#9E97B8]">
-          Customize your theme appearance, default workspace layout, audio chimes, and cloud backup.
+        <p className="mt-1 text-[13px] text-[#9490A8]">
+          Configure appearance, startup & chime behavior, account access, and alert routing.
         </p>
       </div>
 
-      {/* 4 Clean Cards Grid */}
-      <div className="grid grid-cols-12 gap-5">
-        {/* Card 1: Appearance */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
+      {/* 4 Dedicated Cards Grid */}
+      <div className="grid grid-cols-12 gap-4">
+        {/* 1. APPEARANCE CARD */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <div className="flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-white">Appearance</h3>
@@ -112,12 +202,12 @@ export const SettingsView: React.FC = () => {
                   : 'Light'}
               </span>
             </div>
-            <p className="mt-1 text-[12px] text-[#9E97B8]">
-              Switch between Dark mode, AA high-contrast Light mode, or match your OS theme automatically.
+            <p className="mt-1 text-[12.5px] text-[#9490A8]">
+              Choose your workspace color theme or sync with your operating system.
             </p>
           </div>
 
-          <div className="mt-5 grid grid-cols-3 gap-2.5">
+          <div className="mt-4 grid grid-cols-3 gap-2.5">
             {[
               { id: 'dark', label: 'Dark' },
               { id: 'light', label: 'Light' },
@@ -133,8 +223,8 @@ export const SettingsView: React.FC = () => {
                   }
                   className={`rounded-xl border py-2.5 text-[12.5px] font-semibold transition cursor-pointer ${
                     isSelected
-                      ? 'border-[#7C3AED] bg-[#A594F9] text-[#141324] font-bold shadow-sm'
-                      : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8] hover:border-[#52438F] hover:text-white'
+                      ? 'border-[#7C3AED] bg-[#A594F9] text-[#12111A] font-bold shadow-sm'
+                      : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:border-[#52438F] hover:text-white'
                   }`}
                 >
                   {opt.label}
@@ -144,173 +234,216 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 2: Default Display Mode */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
-          <div>
-            <h3 className="text-[15px] font-bold text-white">
-              Default Display Mode
-            </h3>
-            <p className="mt-1 text-[12px] text-[#9E97B8]">
-              Choose how Study Buddy opens when launching a new study session.
-            </p>
-          </div>
+        {/* 2. BEHAVIOR CARD */}
+        <div className="col-span-6 flex flex-col gap-4 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
+          <h3 className="text-[15px] font-bold text-white">Behavior</h3>
 
-          <div className="mt-4 flex flex-col gap-2">
-            {[
-              {
-                id: 'dashboard',
-                title: 'Full Studio Dashboard + Floating Overlays',
-              },
-              {
-                id: 'companion_only',
-                title: 'Transparent Desktop Companion Only',
-              },
-              {
-                id: 'compact_hud',
-                title: 'Minimal Companion + Notepad',
-              },
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() =>
-                  setDisplayMode(mode.id as DefaultDisplayMode)
-                }
-                className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-[12.5px] font-medium transition cursor-pointer ${
-                  displayMode === mode.id
-                    ? 'border-[#7C3AED] bg-[#2A244D] text-[#C4B5FD] font-semibold'
-                    : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8] hover:text-white'
-                }`}
-              >
-                <span>{mode.title}</span>
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    displayMode === mode.id
-                      ? 'bg-[#A594F9]'
-                      : 'bg-[#2C253E]'
-                  }`}
-                />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Card 3: Audio & Companion Chimes */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
-          <div>
-            <div className="flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-white">
-                Audio & Companion Chimes
-              </h3>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={audioEnabled}
-                onClick={() => setAudioEnabled((prev) => !prev)}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                  audioEnabled ? 'bg-[#A594F9]' : 'bg-[#2C253E]'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-[#141324] transition-transform ${
-                    audioEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+          {/* Launch at startup toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[13.5px] font-semibold text-white">
+                Launch at startup
+              </p>
+              <p className="text-[12px] text-[#9490A8]">
+                Open Mambo when you sign in
+              </p>
             </div>
-            <p className="mt-1 text-[12px] text-[#9E97B8]">
-              Synthesized harmonic Web Audio cues when hydration, break, or nudge overlays appear.
-            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={launchAtStartup}
+              onClick={() => setLaunchAtStartup((prev) => !prev)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                launchAtStartup ? 'bg-[#A594F9]' : 'bg-[#2E2A45]'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-[#12111A] transition-transform ${
+                  launchAtStartup ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
           </div>
 
-          <div className="mt-4 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              {[
-                { id: 'gentle_bell', label: 'Gentle Bell' },
-                { id: 'break_start', label: 'Break Triad' },
-                { id: 'alert', label: 'Nudge Pulse' },
-              ].map((tone) => {
+          {/* Sounds toggle */}
+          <div className="flex items-center justify-between border-t border-[#2E2A45] pt-3">
+            <div>
+              <p className="text-[13.5px] font-semibold text-white">Sounds</p>
+              <p className="text-[12px] text-[#9490A8]">
+                Soft chime with reminders
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={soundsEnabled}
+              onClick={() => setSoundsEnabled((prev) => !prev)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                soundsEnabled ? 'bg-[#A594F9]' : 'bg-[#2E2A45]'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-[#12111A] transition-transform ${
+                  soundsEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Audio Chime Selector (Plays automatically on click + Upload Chime button) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#2E2A45] pt-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'gentle_bell', label: 'Gentle Bell' },
+                  { id: 'break_start', label: 'Break Triad' },
+                  { id: 'alert', label: 'Nudge Pulse' },
+                ] as const
+              ).map((tone) => {
                 const active = selectedChime === tone.id;
                 return (
                   <button
                     key={tone.id}
                     type="button"
-                    onClick={() => setSelectedChime(tone.id as ChimeType)}
+                    onClick={() => handleSelectAndPlayChime(tone.id)}
                     className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
                       active
-                        ? 'border-[#7C3AED] bg-[#2A244D] text-[#C4B5FD]'
-                        : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8] hover:text-white'
+                        ? 'border-[#7C3AED] bg-[#A594F9] text-[#12111A] font-bold'
+                        : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:border-[#52438F] hover:text-white'
                     }`}
                   >
                     {tone.label}
                   </button>
                 );
               })}
+
+              {customChime && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectAndPlayChime('custom')}
+                  className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer max-w-[130px] truncate ${
+                    selectedChime === 'custom'
+                      ? 'border-[#7C3AED] bg-[#A594F9] text-[#12111A] font-bold'
+                      : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:border-[#52438F] hover:text-white'
+                  }`}
+                >
+                  ♪ {customChime.name}
+                </button>
+              )}
             </div>
+
+            {/* Upload Custom Chime Button */}
+            <div>
+              <input
+                ref={chimeFileInputRef}
+                type="file"
+                accept="audio/*,.mp3,.wav,.ogg,.m4a"
+                onChange={handleUploadChimeFile}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => chimeFileInputRef.current?.click()}
+                className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#12111A] transition cursor-pointer"
+              >
+                Upload Chime
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. ACCOUNT CARD */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
+          <div>
+            <h3 className="text-[15px] font-bold text-white">Account</h3>
+            <p className="mt-1.5 text-[13px] font-medium text-[#C4B5FD]">
+              Signed in as <span className="font-semibold text-white">{accountEmail}</span>
+            </p>
+            {accountNotice && (
+              <p className="mt-1.5 text-[12px] font-semibold text-[#4ADE80]">
+                ✓ {accountNotice}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setConfirmAction('sign_out')}
+              className="rounded-xl border border-[#2E2A45] bg-[#232136] px-4 py-2 text-[12.5px] font-semibold text-white hover:border-[#52438F] hover:bg-[#2A244D] transition cursor-pointer"
+            >
+              Sign out
+            </button>
 
             <button
               type="button"
-              onClick={() => {
-                if (audioEnabled) playChime(selectedChime);
-              }}
-              className="rounded-xl bg-[#A594F9] px-3.5 py-1.5 text-[12px] font-bold text-[#141324] hover:bg-[#B8A9FA] transition cursor-pointer shrink-0"
+              onClick={() => setConfirmAction('delete_account')}
+              className="rounded-xl bg-[#FF6584]/20 text-[#FF6584] border border-[#FF6584]/30 hover:bg-[#FF6584]/30 px-4 py-2 text-[12.5px] font-semibold transition cursor-pointer"
             >
-              Test Chime
+              Delete account
             </button>
           </div>
         </div>
 
-        {/* Card 4: Account & Automatic Cloud Sync */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
+        {/* 4. ALERTS CARD */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
-            <div className="flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-white">
-                Cloud Sync & Notepad Backup
-              </h3>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0E362D] px-2.5 py-0.5 text-[11px] font-semibold text-[#4ADE80]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#4ADE80]" />
-                {scratchpad.syncStatus === 'synced'
-                  ? 'Cloud Synced'
-                  : 'Local Backup'}
-              </span>
-            </div>
-            <p className="mt-1 text-[12px] text-[#9E97B8]">
-              Cross-device sync occurs automatically upon login across desktop and mobile.
+            <h3 className="text-[15px] font-bold text-white">Alerts</h3>
+            <p className="mt-1 text-[12.5px] text-[#9490A8]">
+              Control how Mambo delivers nudges when you are actively working on your computer.
             </p>
           </div>
 
-          <div className="mt-4 flex items-center justify-between border-t border-[#262038] pt-3.5">
-            <span className="text-[11.5px] font-medium text-[#9E97B8]">
-              {lastSyncedLabel}
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setLastSyncedLabel(
-                    `Synced at ${new Date().toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}`
-                  )
-                }
-                className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#3C3173] transition cursor-pointer"
-              >
-                Sync Now
-              </button>
-
-              <button
-                type="button"
-                onClick={exportScratchpadToMarkdown}
-                className="rounded-xl border border-[#2C253E] bg-[#120F1D] px-3 py-1.5 text-[12px] font-semibold text-[#E2DFF0] hover:border-[#52438F] transition cursor-pointer"
-              >
-                Export .md
-              </button>
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-[#2E2A45] bg-[#120F1D] p-3.5">
+            <div className="pr-3">
+              <p className="text-[13.5px] font-semibold text-white">
+                Route reminders to phone only
+              </p>
+              <p className="mt-0.5 text-[12px] text-[#9490A8]">
+                Reminders go to your phone only when computer is in use.
+              </p>
             </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={routeRemindersToPhoneOnly}
+              onClick={() =>
+                setRouteRemindersToPhoneOnly((prev) => !prev)
+              }
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                routeRemindersToPhoneOnly ? 'bg-[#A594F9]' : 'bg-[#2E2A45]'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-[#12111A] transition-transform ${
+                  routeRemindersToPhoneOnly ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Universal Destructive Action Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmAction !== null}
+        title={
+          confirmAction === 'delete_account'
+            ? 'Delete Study Buddy Account?'
+            : 'Sign Out of Study Buddy?'
+        }
+        description={
+          confirmAction === 'delete_account'
+            ? 'This will permanently delete maya.student@email.com, your earned companion progression, and custom presets. This action cannot be undone.'
+            : 'You will be signed out of maya.student@email.com. Your local Notepad notes and timers will remain saved on this device.'
+        }
+        confirmLabel={
+          confirmAction === 'delete_account' ? 'Delete account' : 'Sign out'
+        }
+        onConfirm={handleConfirmAccountAction}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   );
 };

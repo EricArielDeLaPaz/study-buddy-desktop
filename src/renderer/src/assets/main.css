@@ -19,7 +19,7 @@
     --radius-xl: 24px;
     --radius-full: 9999px;
 
-    /* Dark Mode Surfaces (Strict AA Contrast) */
+    /* Dark Mode Surfaces (WCAG AA Compliant) */
     --bg-app: #0F0E17;
     --bg-surface: #1A1829;
     --bg-elevated: #232136;
@@ -29,77 +29,77 @@
     --border-default: #2E2A45;
     --border-strong: #52438F;
 
-    /* Dark Mode Text (High-Contrast Light on Dark) */
+    /* Dark Mode Text (WCAG AA 4.5:1+ on Dark Surfaces) */
     --text-primary: #F5F5F7;
-    --text-secondary: #E2DFF0;
-    --text-muted: #A39EB8;
+    --text-secondary: #C4B5FD;
+    --text-muted: #9490A8;
 
-    /* Strict Figma Purple / Indigo Accents */
+    /* Dark Mode Purple Accents */
     --accent-primary: #A594F9;
     --accent-primary-hover: #B8A9FA;
-    --accent-on-primary: #141324;
+    --accent-on-primary: #12111A;
     --accent-subtle: #2A244D;
     --accent-subtle-text: #C4B5FD;
 
-    /* Scrollbar Tokens */
+    /* Scrollbar Tokens (Dark) */
     --scrollbar-track: #1A1829;
     --scrollbar-thumb: #2A244D;
 
-    /* Pink & Status Tokens */
-    --pink-primary: #F472B6;
-    --pink-subtle: #491D2E;
+    /* Pink & Status Tokens (Dark) */
+    --pink-primary: #FF6584;
+    --pink-subtle: rgba(255, 101, 132, 0.2);
     --status-success: #4ADE80;
     --status-success-subtle: #0E362D;
     --status-warning: #FBBF24;
     --status-warning-subtle: #3A2813;
-    --status-danger: #F87171;
-    --status-danger-subtle: #3B1D2E;
+    --status-danger: #FF6584;
+    --status-danger-subtle: rgba(255, 101, 132, 0.2);
 
-    /* Chat Bubble Tokens */
+    /* Chat Bubble Tokens (Dark) */
     --bubble-bg: #3C3173;
     --bubble-text: #F5F5F7;
   }
 
   html.light {
-    /* Light Mode Surfaces (Crisp Lavender & White — Strict AA Contrast) */
-    --bg-app: #F7F6FC;
+    /* Light Mode Surfaces (Crisp Lavender & White — WCAG AA Compliant) */
+    --bg-app: #F6F5FB;
     --bg-surface: #FFFFFF;
-    --bg-elevated: #EDEBF8;
-    --bg-inset: #F2F0FA;
+    --bg-elevated: #EDE9FE;
+    --bg-inset: #F1EFFA;
 
     /* Light Mode Borders */
-    --border-default: #D8D3F0;
+    --border-default: #D5CFF0;
     --border-strong: #7C3AED;
 
-    /* Light Mode Text (Deep Charcoal on Light — Zero White Text on Light Surfaces) */
-    --text-primary: #141324;
-    --text-secondary: #2D2B3F;
-    --text-muted: #4B4869;
+    /* Light Mode Text (High-Contrast Charcoal — Zero White Text on Light Surfaces) */
+    --text-primary: #12111A;
+    --text-secondary: #363352;
+    --text-muted: #57537A;
 
-    /* Strict Figma Purple Accents (Light Mode) */
-    --accent-primary: #7C3AED;
-    --accent-primary-hover: #6D28D9;
+    /* Light Mode Deep Purple Accents (WCAG AA 4.5:1+) */
+    --accent-primary: #6D28D9;
+    --accent-primary-hover: #5B21B6;
     --accent-on-primary: #FFFFFF;
-    --accent-subtle: #E4DFF8;
-    --accent-subtle-text: #2D1B69;
+    --accent-subtle: #EDE9FE;
+    --accent-subtle-text: #4C1D95;
 
-    /* Scrollbar Tokens (Light Mode) */
-    --scrollbar-track: #FFFFFF;
-    --scrollbar-thumb: #D0C8F2;
+    /* Scrollbar Tokens (Light) */
+    --scrollbar-track: #F6F5FB;
+    --scrollbar-thumb: #C4B5FD;
 
     /* Pink & Status Tokens (Light Mode AA Compliant) */
-    --pink-primary: #BE185D;
-    --pink-subtle: #FCE7F3;
+    --pink-primary: #D92662;
+    --pink-subtle: rgba(255, 101, 132, 0.16);
     --status-success: #15803D;
     --status-success-subtle: #DCFCE7;
     --status-warning: #B45309;
     --status-warning-subtle: #FEF3C7;
-    --status-danger: #B91C1C;
-    --status-danger-subtle: #FEE2E2;
+    --status-danger: #BE123C;
+    --status-danger-subtle: #FFE4E6;
 
-    /* Chat Bubble Tokens (Light Mode) */
-    --bubble-bg: #EDEBF8;
-    --bubble-text: #141324;
+    /* Chat Bubble Tokens (Light) */
+    --bubble-bg: #EDE9FE;
+    --bubble-text: #12111A;
   }
 
   body {
@@ -108,6 +108,23 @@
     background-color: transparent;
     -webkit-font-smoothing: antialiased;
   }
+}
+
+/* Frameless Window Drag Bar & Interactive Control Protection */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+button,
+input,
+select,
+textarea,
+a,
+label,
+[role='button'],
+[role='switch'],
+[data-no-drag='true'] {
+  -webkit-app-region: no-drag;
 }
 
 /* Global Custom Scrollbar System (Hides OS/Browser Default Scrollbars) */
@@ -155,7 +172,30 @@ input[type='number'] {
   font-family: var(--font-sans);
 }
 
-/* Strict Light-Mode AA Contrast Surface & Text Mapping */
+/* Semantic Color Utility Classes */
+.text-primary {
+  color: var(--text-primary);
+}
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-muted {
+  color: var(--text-muted);
+}
+.bg-app {
+  background-color: var(--bg-app);
+}
+.bg-surface {
+  background-color: var(--bg-surface);
+}
+.bg-elevated {
+  background-color: var(--bg-elevated);
+}
+.bg-inset {
+  background-color: var(--bg-inset);
+}
+
+/* Strict Light-Mode WCAG AA Contrast Overrides across All Views, Banners & Modals */
 html.light .bg-\[\#141020\],
 html.light .bg-\[\#0F0E17\] {
   background-color: var(--bg-app) !important;
@@ -172,19 +212,37 @@ html.light .bg-\[\#232136\],
 html.light .bg-\[\#1F1930\],
 html.light .bg-\[\#1F1A30\],
 html.light .bg-\[\#211B32\],
-html.light .bg-\[\#1E192D\] {
+html.light .bg-\[\#211B34\],
+html.light .bg-\[\#1B162A\],
+html.light .bg-\[\#1B162B\],
+html.light .bg-\[\#1E192D\],
+html.light .bg-\[\#1C172B\],
+html.light .bg-\[\#1A1528\],
+html.light .bg-\[\#231C38\],
+html.light .bg-\[\#211A36\],
+html.light .bg-\[\#211A36\]\/90,
+html.light .bg-\[\#241D38\]\/95,
+html.light .bg-\[\#181424\]\/95 {
   background-color: var(--bg-elevated) !important;
 }
 
 html.light .bg-\[\#120F1D\],
 html.light .bg-\[\#120F1C\],
+html.light .bg-\[\#110E1A\],
+html.light .bg-\[\#110E1B\],
 html.light .bg-\[\#0E0B16\],
+html.light .bg-\[\#0E0B17\],
+html.light .bg-\[\#0D0B14\],
 html.light .bg-\[\#0F0C18\],
 html.light .bg-\[\#0B0912\],
 html.light .bg-\[\#13101E\],
 html.light .bg-\[\#151120\],
+html.light .bg-\[\#151122\],
 html.light .bg-\[\#161221\],
-html.light .bg-\[\#171324\] {
+html.light .bg-\[\#161224\],
+html.light .bg-\[\#171324\],
+html.light .bg-\[\#171326\]\/90,
+html.light .bg-\[\#141022\] {
   background-color: var(--bg-inset) !important;
 }
 
@@ -192,6 +250,7 @@ html.light .bg-\[\#261E42\],
 html.light .bg-\[\#2A244D\],
 html.light .bg-\[\#241E36\],
 html.light .bg-\[\#251E3A\],
+html.light .bg-\[\#251F38\],
 html.light .bg-\[\#3C3173\] {
   background-color: var(--accent-subtle) !important;
 }
@@ -199,21 +258,29 @@ html.light .bg-\[\#3C3173\] {
 html.light .border-\[\#2C253E\],
 html.light .border-\[\#322A4B\],
 html.light .border-\[\#342C4C\],
+html.light .border-\[\#342D4B\],
 html.light .border-\[\#262038\],
 html.light .border-\[\#241E36\],
+html.light .border-\[\#241E34\],
+html.light .border-\[\#231D34\],
 html.light .border-\[\#2A233D\],
 html.light .border-\[\#383052\],
-html.light .border-\[\#3B3354\] {
+html.light .border-\[\#3B3354\],
+html.light .border-\[\#3B3256\],
+html.light .border-\[\#2E2744\],
+html.light .border-\[\#2F2747\] {
   border-color: var(--border-default) !important;
 }
 
 html.light .border-\[\#4E4187\],
+html.light .border-\[\#52438F\],
+html.light .border-\[\#3E3268\],
 html.light .border-\[\#A594F9\],
 html.light .border-\[\#7C3AED\] {
   border-color: var(--border-strong) !important;
 }
 
-/* Guarantee Deep Charcoal Text on Light Surfaces in Light Mode */
+/* Guarantee High-Contrast Charcoal Text on Light Surfaces in Light Mode */
 html.light .text-white,
 html.light .text-zinc-100,
 html.light .text-\[\#F5F5F7\],
@@ -233,7 +300,8 @@ html.light .text-\[\#C4B5FD\] {
 html.light .text-\[\#9E97B8\],
 html.light .text-\[\#8E87A8\],
 html.light .text-\[\#7D7696\],
-html.light .text-\[\#6E678A\] {
+html.light .text-\[\#6E678A\],
+html.light .text-\[\#9490A8\] {
   color: var(--text-muted) !important;
 }
 
@@ -241,7 +309,7 @@ html.light .text-\[\#A594F9\] {
   color: var(--accent-primary) !important;
 }
 
-/* High-Contrast Primary Buttons in Light Mode */
+/* High-Contrast Primary Buttons in Light Mode (White text on #6D28D9 deep purple) */
 html.light .bg-\[\#A594F9\] {
   background-color: var(--accent-primary) !important;
   color: #FFFFFF !important;
@@ -249,6 +317,7 @@ html.light .bg-\[\#A594F9\] {
 
 html.light .bg-\[\#A594F9\]:hover {
   background-color: var(--accent-primary-hover) !important;
+  color: #FFFFFF !important;
 }
 
 /* Status Pill AA Contrast in Light Mode */
@@ -264,4 +333,7 @@ html.light .bg-\[\#3A2813\] {
 }
 html.light .text-\[\#FBBF24\] {
   color: var(--status-warning) !important;
+}
+html.light .text-\[\#FF6584\] {
+  color: var(--pink-primary) !important;
 }

@@ -1,6 +1,7 @@
 // src/renderer/src/components/scratchpad/Scratchpad.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp, SCRATCHPAD_STORAGE_KEY } from '../../context/AppContext';
+import { ConfirmModal } from '../common/ConfirmModal';
 
 export type NoteHierarchyType = 'title' | 'heading' | 'subheading' | 'body';
 export type NoteListType =
@@ -164,9 +165,6 @@ function serializeBlocksToMarkdown(blocks: NoteBlock[]): string {
     .join('\n');
 }
 
-/**
- * Generates an instant SVG snapshot preview when the user clicks "Screenshot Page".
- */
 function createPageScreenshotDataUrl(): { name: string; dataUrl: string } {
   const timestamp = new Date().toLocaleTimeString([], {
     hour: '2-digit',
@@ -234,6 +232,7 @@ export const Scratchpad: React.FC = () => {
     () => blocks[0]?.id ?? 'blk-1'
   );
   const [isListMenuOpen, setIsListMenuOpen] = useState<boolean>(false);
+  const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
 
   // Drag-and-Drop Inline Attachment State
   const [draggedSourceBlockId, setDraggedSourceBlockId] = useState<
@@ -347,6 +346,23 @@ export const Scratchpad: React.FC = () => {
     setIsListMenuOpen(false);
   };
 
+  const handleConfirmClearNotepad = () => {
+    const resetId = `blk-${Date.now()}`;
+    setBlocks([
+      {
+        id: resetId,
+        text: '',
+        hierarchy: 'body',
+        bold: false,
+        italic: false,
+        underline: false,
+        strikethrough: false,
+        listType: 'none',
+      },
+    ]);
+    setActiveBlockId(resetId);
+  };
+
   const handleBlockKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
     blk: NoteBlock,
@@ -432,7 +448,6 @@ export const Scratchpad: React.FC = () => {
     [activeBlockId]
   );
 
-  // Upload Photo/Screenshot from desktop directly inline
   const handleAttachmentSelected = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -458,7 +473,6 @@ export const Scratchpad: React.FC = () => {
     e.target.value = '';
   };
 
-  // Capture / Embed Page Screenshot directly into the active note
   const handleScreenshotPage = () => {
     const shot = createPageScreenshotDataUrl();
     insertAttachmentAtActiveBlock({
@@ -470,7 +484,6 @@ export const Scratchpad: React.FC = () => {
     });
   };
 
-  // Drag-and-Drop Reordering of Inline Attachments between lines/paragraphs
   const handleAttachmentDragStart = (
     e: React.DragEvent,
     sourceBlockId: string
@@ -538,7 +551,6 @@ export const Scratchpad: React.FC = () => {
     setDropTargetBlockId(null);
   };
 
-  // Dual-Axis (Horizontal + Vertical) Resize Handle for Attachments
   const handleStartAttachmentResize = (
     e: React.MouseEvent,
     blockId: string,
@@ -595,7 +607,6 @@ export const Scratchpad: React.FC = () => {
     );
   };
 
-  // Notepad Window Resize Handler (Right, Bottom, Bottom-Right Corner)
   const handleStartWindowResize = (
     e: React.MouseEvent,
     direction: 'right' | 'bottom' | 'corner'
@@ -708,538 +719,530 @@ export const Scratchpad: React.FC = () => {
   let numberedListRun = 0;
 
   return (
-    <div
-      onMouseEnter={() => setInteractiveRegionHovered('scratchpad', true)}
-      onMouseLeave={() => setInteractiveRegionHovered('scratchpad', false)}
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        width: `${windowSize.width}px`,
-        height: isScratchpadMinimized ? 'auto' : `${windowSize.height}px`,
-      }}
-      className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none"
-    >
-      {/* Hidden File Input for Desktop Upload */}
-      <input
-        ref={attachmentInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleAttachmentSelected}
-        className="hidden"
-      />
-
-      {/* 1. HEADER: Title updated to "Notepad" */}
+    <>
       <div
-        onMouseDown={handleHeaderMouseDown}
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        className="flex items-center justify-between border-b border-[#262038] bg-[#151120] px-5 py-3.5 cursor-move"
+        onMouseEnter={() => setInteractiveRegionHovered('scratchpad', true)}
+        onMouseLeave={() => setInteractiveRegionHovered('scratchpad', false)}
+        style={{
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          width: `${windowSize.width}px`,
+          height: isScratchpadMinimized ? 'auto' : `${windowSize.height}px`,
+        }}
+        className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none font-sans"
       >
-        <div className="flex items-center gap-2.5">
-          <h2 className="text-[18px] font-bold tracking-tight text-white">
-            Notepad
-          </h2>
+        <input
+          ref={attachmentInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleAttachmentSelected}
+          className="hidden"
+        />
 
-          <button
-            type="button"
-            data-no-drag="true"
-            onClick={toggleSyncStatus}
-            title="Click to toggle Cloud Synced / Offline status"
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition cursor-pointer ${
-              isSynced
-                ? 'bg-[#0E362D] text-[#4ADE80] border border-[#17594A]'
-                : 'bg-[#3A2813] text-[#FBBF24] border border-[#5C3F1C]'
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
-              }`}
-            />
-            <span>{isSynced ? 'Cloud Synced' : 'Offline · Local'}</span>
-          </button>
-        </div>
-
+        {/* 1. HEADER: "Notepad" */}
         <div
-          data-no-drag="true"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          className="flex items-center gap-2.5"
+          onMouseDown={handleHeaderMouseDown}
+          className="flex items-center justify-between border-b border-[#262038] bg-[#151120] px-5 py-3.5 cursor-move"
         >
-          <span className="text-[11px] font-medium text-[#8E87A8]">
-            {isSynced ? 'Synced just now' : 'Saved locally'}
-          </span>
-
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setScratchpadMinimized(!isScratchpadMinimized)}
-              title={
-                isScratchpadMinimized ? 'Expand Notepad' : 'Minimize Notepad'
-              }
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#29233B] hover:text-white transition cursor-pointer"
-            >
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
+          <div className="flex items-center gap-2.5">
+            <h2 className="font-display text-[18px] font-bold tracking-tight text-white">
+              Notepad
+            </h2>
 
             <button
               type="button"
-              onClick={() => {
-                setInteractiveRegionHovered('scratchpad', false);
-                setScratchpadOpen(false);
-              }}
-              title="Close Notepad"
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#3B1D2E] hover:text-white transition cursor-pointer"
+              data-no-drag="true"
+              onClick={toggleSyncStatus}
+              title="Click to toggle Cloud Synced / Offline status"
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition cursor-pointer ${
+                isSynced
+                  ? 'bg-[#0E362D] text-[#4ADE80] border border-[#17594A]'
+                  : 'bg-[#3A2813] text-[#FBBF24] border border-[#5C3F1C]'
+              }`}
             >
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {!isScratchpadMinimized && (
-        <>
-          {/* 2. HIERARCHY ROW */}
-          <div className="flex items-center justify-between border-b border-[#231D34] bg-[#171324] px-5 py-2.5">
-            <div className="flex items-center gap-1.5">
-              {HIERARCHY_OPTIONS.map((item) => {
-                const isSelected = activeBlock?.hierarchy === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleSelectHierarchy(item.id)}
-                    className={`rounded-full px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#A594F9] text-[#171329] shadow-sm'
-                        : 'bg-[#221C34] text-[#B8B2CC] hover:bg-[#2E2646] hover:text-white'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={exportNotesAsMarkdown}
-              title="Export notes as Markdown (.md)"
-              className="text-[11px] font-semibold text-[#A594F9] hover:text-[#C4B5FD] transition cursor-pointer"
-            >
-              Export .md
-            </button>
-          </div>
-
-          {/* 3. FORMATTING TOOLBAR */}
-          <div className="flex items-center justify-between border-b border-[#231D34] bg-[#1A1528] px-5 py-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleToggleInlineFormat('bold')}
-                title="Bold"
-                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] font-bold transition cursor-pointer ${
-                  activeBlock?.bold
-                    ? 'bg-[#3C3173] text-white border border-[#A594F9]'
-                    : 'bg-[#120E1C] text-[#B8B2CC] hover:bg-[#251E38] hover:text-white'
-                }`}
-              >
-                B
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleToggleInlineFormat('italic')}
-                title="Italic"
-                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] italic font-serif font-semibold transition cursor-pointer ${
-                  activeBlock?.italic
-                    ? 'bg-[#3C3173] text-white border border-[#A594F9]'
-                    : 'bg-[#120E1C] text-[#B8B2CC] hover:bg-[#251E38] hover:text-white'
-                }`}
-              >
-                I
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleToggleInlineFormat('underline')}
-                title="Underline"
-                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] underline font-semibold transition cursor-pointer ${
-                  activeBlock?.underline
-                    ? 'bg-[#3C3173] text-white border border-[#A594F9]'
-                    : 'bg-[#120E1C] text-[#B8B2CC] hover:bg-[#251E38] hover:text-white'
-                }`}
-              >
-                U
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleToggleInlineFormat('strikethrough')}
-                title="Strikethrough"
-                className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] line-through font-semibold transition cursor-pointer ${
-                  activeBlock?.strikethrough
-                    ? 'bg-[#3C3173] text-white border border-[#A594F9]'
-                    : 'bg-[#120E1C] text-[#B8B2CC] hover:bg-[#251E38] hover:text-white'
-                }`}
-              >
-                S
-              </button>
-
-              <span className="mx-1 h-4 w-[1px] bg-[#2C253E]" />
-
-              {/* Single Combined List Dropdown (≡ ⌵) */}
-              <div className="relative" ref={listMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsListMenuOpen((prev) => !prev)}
-                  title="List formatting options"
-                  aria-expanded={isListMenuOpen}
-                  className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-semibold transition cursor-pointer ${
-                    activeBlock?.listType && activeBlock.listType !== 'none'
-                      ? 'bg-[#3C3173] text-white border border-[#A594F9]'
-                      : 'bg-[#120E1C] text-[#B8B2CC] hover:bg-[#251E38] hover:text-white'
-                  }`}
-                >
-                  <span className="text-[13px] leading-none">≡</span>
-                  <span className="text-[10px] leading-none">⌵</span>
-                </button>
-
-                {isListMenuOpen && (
-                  <div className="absolute left-0 top-full z-50 mt-1.5 w-44 rounded-xl border border-[#3B3256] bg-[#151122] p-1.5 shadow-[0_14px_34px_rgba(0,0,0,0.75)]">
-                    {LIST_DROPDOWN_OPTIONS.map((opt) => {
-                      const isCurrent = activeBlock?.listType === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => handleSelectListType(opt.id)}
-                          className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] font-medium transition cursor-pointer ${
-                            isCurrent
-                              ? 'bg-[#3C3173] text-white font-semibold'
-                              : 'text-[#DDD8F3] hover:bg-[#241E38]'
-                          }`}
-                        >
-                          <span className="flex items-center gap-2.5">
-                            <span className="w-4 text-center font-bold text-[#A594F9]">
-                              {opt.symbol}
-                            </span>
-                            <span>{opt.label}</span>
-                          </span>
-                          {isCurrent && (
-                            <span className="text-[10px] text-[#4ADE80]">●</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                const resetId = `blk-${Date.now()}`;
-                setBlocks([
-                  {
-                    id: resetId,
-                    text: '',
-                    hierarchy: 'body',
-                    bold: false,
-                    italic: false,
-                    underline: false,
-                    strikethrough: false,
-                    listType: 'none',
-                  },
-                ]);
-                setActiveBlockId(resetId);
-              }}
-              className="text-[11.5px] font-medium text-[#8E87A8] hover:text-rose-300 transition cursor-pointer"
-            >
-              Clear
-            </button>
-          </div>
-
-          {/* 4. CONTENT AREA: Blank Lines & Clean Resizable/Draggable Attachments */}
-          <div className="flex-1 px-4 py-3 flex flex-col min-h-0">
-            <div className="flex-1 rounded-xl bg-[#0B0912] border border-[#241E34] p-3.5 overflow-y-auto flex flex-col gap-1.5">
-              {blocks.map((blk, idx) => {
-                if (blk.listType === 'numbered') {
-                  numberedListRun += 1;
-                } else {
-                  numberedListRun = 0;
-                }
-
-                const hierarchyClasses =
-                  blk.hierarchy === 'title'
-                    ? 'text-[17px] font-bold text-white tracking-tight'
-                    : blk.hierarchy === 'heading'
-                    ? 'text-[15px] font-bold text-[#F3F1FA]'
-                    : blk.hierarchy === 'subheading'
-                    ? 'text-[13.5px] font-semibold text-[#C4B5FD]'
-                    : 'text-[13px] text-[#DFDCF0]';
-
-                const inlineClasses = [
-                  blk.bold ? 'font-bold' : '',
-                  blk.italic ? 'italic' : '',
-                  blk.underline ? 'underline' : '',
-                  blk.strikethrough || blk.checked
-                    ? 'line-through opacity-60'
-                    : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ');
-
-                const isDropTarget =
-                  dropTargetBlockId === blk.id &&
-                  draggedSourceBlockId !== blk.id;
-
-                const att = blk.attachment;
-
-                return (
-                  <div
-                    key={blk.id}
-                    onClick={() => setActiveBlockId(blk.id)}
-                    onDragOver={(e) => handleBlockDragOver(e, blk.id)}
-                    onDrop={(e) => handleBlockDrop(e, blk.id)}
-                    className={`group relative rounded-lg px-2 py-1 transition ${
-                      isDropTarget
-                        ? 'border-t-2 border-[#A594F9] bg-[#211A36]'
-                        : activeBlockId === blk.id
-                        ? 'bg-[#171326]/90'
-                        : 'hover:bg-[#131020]/50'
-                    }`}
-                  >
-                    {/* Clean Draggable & Dual-Axis Resizable Attachment Card */}
-                    {att && (
-                      <div
-                        draggable
-                        onDragStart={(e) =>
-                          handleAttachmentDragStart(e, blk.id)
-                        }
-                        style={{
-                          width: `${att.widthPx}px`,
-                          height: `${att.heightPx || 145}px`,
-                        }}
-                        className="relative my-1.5 flex max-w-full flex-col overflow-hidden rounded-xl border border-[#383052] bg-[#151120] p-1.5 shadow-md cursor-grab active:cursor-grabbing"
-                      >
-                        {/* Top-Right Close '✕' Button */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveAttachment(blk.id);
-                          }}
-                          title="Remove attachment"
-                          aria-label="Remove attachment"
-                          className="absolute top-2.5 right-2.5 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-[#0E0B16]/85 border border-[#383052] text-[10px] text-[#B8B2CC] hover:bg-rose-500/80 hover:text-white transition cursor-pointer"
-                        >
-                          ✕
-                        </button>
-
-                        {/* Resizable Image Viewport */}
-                        <img
-                          src={att.dataUrl}
-                          alt={att.name}
-                          draggable={false}
-                          className="w-full flex-1 min-h-0 rounded-lg object-cover bg-[#09070E]"
-                        />
-
-                        {/* Bottom Bar: Only File Name Spanning Left-to-Right Before Grip Handle */}
-                        <div className="relative mt-1.5 flex items-center pr-5 pl-1">
-                          <span className="w-full truncate text-[10.5px] font-medium text-[#9E97B8]">
-                            {att.name}
-                          </span>
-                        </div>
-
-                        {/* Subtle Diagonal Corner Grip Handle (Matching Notepad Container) */}
-                        <div
-                          onMouseDown={(e) =>
-                            handleStartAttachmentResize(
-                              e,
-                              blk.id,
-                              att.widthPx,
-                              att.heightPx || 145
-                            )
-                          }
-                          title="Drag to resize attachment horizontally or vertically"
-                          className="absolute bottom-1 right-1 z-20 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#7D7696] hover:text-[#A594F9]"
-                        >
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 10 10"
-                            fill="none"
-                          >
-                            <path
-                              d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
-                              stroke="currentColor"
-                              strokeWidth="1.4"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Blank Note Line Input */}
-                    <div className="flex items-center gap-2">
-                      {blk.listType === 'bullet' && (
-                        <span className="w-4 shrink-0 text-center text-[14px] font-bold text-[#A594F9]">
-                          •
-                        </span>
-                      )}
-                      {blk.listType === 'dash' && (
-                        <span className="w-4 shrink-0 text-center text-[13px] font-bold text-[#A594F9]">
-                          −
-                        </span>
-                      )}
-                      {blk.listType === 'numbered' && (
-                        <span className="w-5 shrink-0 text-right text-[12px] font-bold tabular-nums text-[#A594F9]">
-                          {numberedListRun}.
-                        </span>
-                      )}
-                      {blk.listType === 'checklist' && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setBlocks((prev) =>
-                              prev.map((item) =>
-                                item.id === blk.id
-                                  ? { ...item, checked: !item.checked }
-                                  : item
-                              )
-                            );
-                          }}
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition cursor-pointer ${
-                            blk.checked
-                              ? 'border-[#4ADE80] bg-[#4ADE80] text-[#0B0912] font-bold'
-                              : 'border-[#5A5373] bg-[#141022] text-transparent hover:border-[#A594F9]'
-                          }`}
-                        >
-                          ✔
-                        </button>
-                      )}
-
-                      <input
-                        ref={(el) => {
-                          blockInputRefs.current[blk.id] = el;
-                        }}
-                        type="text"
-                        value={blk.text}
-                        onFocus={() => setActiveBlockId(blk.id)}
-                        onChange={(e) =>
-                          setBlocks((prev) =>
-                            prev.map((item) =>
-                              item.id === blk.id
-                                ? { ...item, text: e.target.value }
-                                : item
-                            )
-                          )
-                        }
-                        onKeyDown={(e) => handleBlockKeyDown(e, blk, idx)}
-                        aria-label={`Notepad line ${idx + 1}`}
-                        className={`w-full bg-transparent focus:outline-none select-text min-h-[22px] ${hierarchyClasses} ${inlineClasses}`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 5. FOOTER: "+ Upload from desktop" & "Screenshot Page" */}
-          <div className="relative flex items-center justify-between gap-2 border-t border-[#241E34] bg-[#151120] px-4 py-3">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => attachmentInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#3E345B] bg-[#211B34] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#2C2445] hover:text-white transition cursor-pointer shadow-sm"
-              >
-                <span className="text-[13px] font-bold text-[#A594F9]">+</span>
-                <span>Upload from desktop</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleScreenshotPage}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#3E345B] bg-[#1B162B] px-3 py-1.5 text-[11.5px] font-semibold text-[#C4B5FD] hover:bg-[#28203F] hover:text-white transition cursor-pointer shadow-sm"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                  <circle cx="12" cy="13" r="4" />
-                </svg>
-                <span>Screenshot Page</span>
-              </button>
-            </div>
-
-            <span className="inline-flex items-center gap-1.5 pr-2 text-[11px] font-medium text-[#8E87A8] shrink-0">
               <span
-                className={`h-2 w-2 rounded-full ${
+                className={`h-1.5 w-1.5 rounded-full ${
                   isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
                 }`}
               />
-              <span>{isSynced ? 'iPhone synced' : 'Saved locally'}</span>
-            </span>
+              <span>{isSynced ? 'Cloud Synced' : 'Offline · Local'}</span>
+            </button>
           </div>
 
-          {/* Notepad Window Resize Handles */}
           <div
-            onMouseDown={(e) => handleStartWindowResize(e, 'right')}
-            className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
-          />
-          <div
-            onMouseDown={(e) => handleStartWindowResize(e, 'bottom')}
-            className="absolute bottom-0 left-4 right-4 h-1.5 cursor-ns-resize"
-          />
-          <div
-            onMouseDown={(e) => handleStartWindowResize(e, 'corner')}
-            title="Drag to resize Notepad window"
-            className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#7D7696] hover:text-[#A594F9]"
+            data-no-drag="true"
+            className="flex items-center gap-2.5"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path
-                d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
+            <span className="text-[11px] font-medium text-[#9490A8]">
+              {isSynced ? 'Synced just now' : 'Saved locally'}
+            </span>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setScratchpadMinimized(!isScratchpadMinimized)}
+                title={
+                  isScratchpadMinimized ? 'Expand Notepad' : 'Minimize Notepad'
+                }
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#29233B] hover:text-white transition cursor-pointer"
+              >
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setInteractiveRegionHovered('scratchpad', false);
+                  setScratchpadOpen(false);
+                }}
+                title="Close Notepad"
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#3B1D2E] hover:text-white transition cursor-pointer"
+              >
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
           </div>
-        </>
-      )}
-    </div>
+        </div>
+
+        {!isScratchpadMinimized && (
+          <>
+            {/* 2. HIERARCHY ROW */}
+            <div className="flex items-center justify-between border-b border-[#231D34] bg-[#171324] px-5 py-2.5">
+              <div className="flex items-center gap-1.5">
+                {HIERARCHY_OPTIONS.map((item) => {
+                  const isSelected = activeBlock?.hierarchy === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleSelectHierarchy(item.id)}
+                      className={`rounded-full px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#A594F9] text-[#12111A] shadow-sm'
+                          : 'bg-[#221C34] text-[#C4B5FD] hover:bg-[#2E2646] hover:text-white'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={exportNotesAsMarkdown}
+                title="Export notes as Markdown (.md)"
+                className="text-[11px] font-semibold text-[#A594F9] hover:text-[#C4B5FD] transition cursor-pointer"
+              >
+                Export .md
+              </button>
+            </div>
+
+            {/* 3. FORMATTING TOOLBAR */}
+            <div className="flex items-center justify-between border-b border-[#231D34] bg-[#1A1528] px-5 py-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleToggleInlineFormat('bold')}
+                  title="Bold"
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] font-bold transition cursor-pointer ${
+                    activeBlock?.bold
+                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
+                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                  }`}
+                >
+                  B
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleInlineFormat('italic')}
+                  title="Italic"
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] italic font-serif font-semibold transition cursor-pointer ${
+                    activeBlock?.italic
+                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
+                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                  }`}
+                >
+                  I
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleInlineFormat('underline')}
+                  title="Underline"
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] underline font-semibold transition cursor-pointer ${
+                    activeBlock?.underline
+                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
+                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                  }`}
+                >
+                  U
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleInlineFormat('strikethrough')}
+                  title="Strikethrough"
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] line-through font-semibold transition cursor-pointer ${
+                    activeBlock?.strikethrough
+                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
+                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                  }`}
+                >
+                  S
+                </button>
+
+                <span className="mx-1 h-4 w-[1px] bg-[#2C253E]" />
+
+                {/* Single Combined List Dropdown (≡ ⌵) */}
+                <div className="relative" ref={listMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsListMenuOpen((prev) => !prev)}
+                    title="List formatting options"
+                    aria-expanded={isListMenuOpen}
+                    className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-semibold transition cursor-pointer ${
+                      activeBlock?.listType && activeBlock.listType !== 'none'
+                        ? 'bg-[#2A244D] text-white border border-[#A594F9]'
+                        : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                    }`}
+                  >
+                    <span className="text-[13px] leading-none">≡</span>
+                    <span className="text-[10px] leading-none">⌵</span>
+                  </button>
+
+                  {isListMenuOpen && (
+                    <div className="absolute left-0 top-full z-50 mt-1.5 w-44 rounded-xl border border-[#52438F] bg-[#232136] p-1.5 shadow-xl">
+                      {LIST_DROPDOWN_OPTIONS.map((opt) => {
+                        const isCurrent = activeBlock?.listType === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleSelectListType(opt.id)}
+                            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] font-medium transition cursor-pointer ${
+                              isCurrent
+                                ? 'bg-[#2A244D] text-white font-semibold'
+                                : 'text-[#E2DFF0] hover:bg-[#2A244D]/60'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span className="w-4 text-center font-bold text-[#A594F9]">
+                                {opt.symbol}
+                              </span>
+                              <span>{opt.label}</span>
+                            </span>
+                            {isCurrent && (
+                              <span className="text-[10px] text-[#4ADE80]">
+                                ●
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsClearModalOpen(true)}
+                className="text-[11.5px] font-semibold text-[#9490A8] hover:text-red-400 transition cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+
+            {/* 4. CONTENT AREA */}
+            <div className="flex-1 px-4 py-3 flex flex-col min-h-0">
+              <div className="flex-1 rounded-xl bg-[#0B0912] border border-[#241E34] p-3.5 overflow-y-auto flex flex-col gap-1.5">
+                {blocks.map((blk, idx) => {
+                  if (blk.listType === 'numbered') {
+                    numberedListRun += 1;
+                  } else {
+                    numberedListRun = 0;
+                  }
+
+                  const hierarchyClasses =
+                    blk.hierarchy === 'title'
+                      ? 'text-[17px] font-bold text-white tracking-tight'
+                      : blk.hierarchy === 'heading'
+                      ? 'text-[15px] font-bold text-[#F5F5F7]'
+                      : blk.hierarchy === 'subheading'
+                      ? 'text-[13.5px] font-semibold text-[#C4B5FD]'
+                      : 'text-[13px] text-[#E2DFF0]';
+
+                  const inlineClasses = [
+                    blk.bold ? 'font-bold' : '',
+                    blk.italic ? 'italic' : '',
+                    blk.underline ? 'underline' : '',
+                    blk.strikethrough || blk.checked
+                      ? 'line-through opacity-60'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ');
+
+                  const isDropTarget =
+                    dropTargetBlockId === blk.id &&
+                    draggedSourceBlockId !== blk.id;
+
+                  const att = blk.attachment;
+
+                  return (
+                    <div
+                      key={blk.id}
+                      onClick={() => setActiveBlockId(blk.id)}
+                      onDragOver={(e) => handleBlockDragOver(e, blk.id)}
+                      onDrop={(e) => handleBlockDrop(e, blk.id)}
+                      className={`group relative rounded-lg px-2 py-1 transition ${
+                        isDropTarget
+                          ? 'border-t-2 border-[#A594F9] bg-[#211A36]'
+                          : activeBlockId === blk.id
+                          ? 'bg-[#171326]/90'
+                          : 'hover:bg-[#131020]/50'
+                      }`}
+                    >
+                      {att && (
+                        <div
+                          draggable
+                          onDragStart={(e) =>
+                            handleAttachmentDragStart(e, blk.id)
+                          }
+                          style={{
+                            width: `${att.widthPx}px`,
+                            height: `${att.heightPx || 145}px`,
+                          }}
+                          className="relative my-1.5 flex max-w-full flex-col overflow-hidden rounded-xl border border-[#383052] bg-[#151120] p-1.5 shadow-md cursor-grab active:cursor-grabbing"
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveAttachment(blk.id);
+                            }}
+                            title="Remove attachment"
+                            aria-label="Remove attachment"
+                            className="absolute top-2.5 right-2.5 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-[#0E0B16]/85 border border-[#383052] text-[10px] text-[#B8B2CC] hover:bg-rose-500/80 hover:text-white transition cursor-pointer"
+                          >
+                            ✕
+                          </button>
+
+                          <img
+                            src={att.dataUrl}
+                            alt={att.name}
+                            draggable={false}
+                            className="w-full flex-1 min-h-0 rounded-lg object-cover bg-[#09070E]"
+                          />
+
+                          <div className="relative mt-1.5 flex items-center pr-5 pl-1">
+                            <span className="w-full truncate text-[10.5px] font-medium text-[#9490A8]">
+                              {att.name}
+                            </span>
+                          </div>
+
+                          <div
+                            onMouseDown={(e) =>
+                              handleStartAttachmentResize(
+                                e,
+                                blk.id,
+                                att.widthPx,
+                                att.heightPx || 145
+                              )
+                            }
+                            title="Drag to resize attachment horizontally or vertically"
+                            className="absolute bottom-1 right-1 z-20 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#9490A8] hover:text-[#A594F9]"
+                          >
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 10 10"
+                              fill="none"
+                            >
+                              <path
+                                d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        {blk.listType === 'bullet' && (
+                          <span className="w-4 shrink-0 text-center text-[14px] font-bold text-[#A594F9]">
+                            •
+                          </span>
+                        )}
+                        {blk.listType === 'dash' && (
+                          <span className="w-4 shrink-0 text-center text-[13px] font-bold text-[#A594F9]">
+                            −
+                          </span>
+                        )}
+                        {blk.listType === 'numbered' && (
+                          <span className="w-5 shrink-0 text-right text-[12px] font-bold tabular-nums text-[#A594F9]">
+                            {numberedListRun}.
+                          </span>
+                        )}
+                        {blk.listType === 'checklist' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setBlocks((prev) =>
+                                prev.map((item) =>
+                                  item.id === blk.id
+                                    ? { ...item, checked: !item.checked }
+                                    : item
+                                )
+                              );
+                            }}
+                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition cursor-pointer ${
+                              blk.checked
+                                ? 'border-[#4ADE80] bg-[#4ADE80] text-[#0B0912] font-bold'
+                                : 'border-[#5A5373] bg-[#141022] text-transparent hover:border-[#A594F9]'
+                            }`}
+                          >
+                            ✔
+                          </button>
+                        )}
+
+                        <input
+                          ref={(el) => {
+                            blockInputRefs.current[blk.id] = el;
+                          }}
+                          type="text"
+                          value={blk.text}
+                          onFocus={() => setActiveBlockId(blk.id)}
+                          onChange={(e) =>
+                            setBlocks((prev) =>
+                              prev.map((item) =>
+                                item.id === blk.id
+                                  ? { ...item, text: e.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                          onKeyDown={(e) => handleBlockKeyDown(e, blk, idx)}
+                          aria-label={`Notepad line ${idx + 1}`}
+                          className={`w-full bg-transparent focus:outline-none select-text min-h-[22px] ${hierarchyClasses} ${inlineClasses}`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 5. FOOTER */}
+            <div className="relative flex items-center justify-between gap-2 border-t border-[#241E34] bg-[#151120] px-4 py-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => attachmentInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#52438F] bg-[#211B34] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#2C2445] hover:text-white transition cursor-pointer shadow-sm"
+                >
+                  <span className="text-[13px] font-bold text-[#A594F9]">
+                    +
+                  </span>
+                  <span>Upload from desktop</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleScreenshotPage}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#52438F] bg-[#1B162B] px-3 py-1.5 text-[11.5px] font-semibold text-[#C4B5FD] hover:bg-[#28203F] hover:text-white transition cursor-pointer shadow-sm"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                    <circle cx="12" cy="13" r="4" />
+                  </svg>
+                  <span>Screenshot Page</span>
+                </button>
+              </div>
+
+              <span className="inline-flex items-center gap-1.5 pr-2 text-[11px] font-medium text-[#9490A8] shrink-0">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
+                  }`}
+                />
+                <span>{isSynced ? 'iPhone synced' : 'Saved locally'}</span>
+              </span>
+            </div>
+
+            {/* Notepad Window Resize Handles */}
+            <div
+              onMouseDown={(e) => handleStartWindowResize(e, 'right')}
+              className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
+            />
+            <div
+              onMouseDown={(e) => handleStartWindowResize(e, 'bottom')}
+              className="absolute bottom-0 left-4 right-4 h-1.5 cursor-ns-resize"
+            />
+            <div
+              onMouseDown={(e) => handleStartWindowResize(e, 'corner')}
+              title="Drag to resize Notepad window"
+              className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#9490A8] hover:text-[#A594F9]"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path
+                  d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Confirmation Modal for Clearing All Notepad Content */}
+      <ConfirmModal
+        isOpen={isClearModalOpen}
+        title="Clear All Notepad Notes?"
+        description="This will remove all current lines, checklists, and inline attachments from your Notepad. This action cannot be undone."
+        confirmLabel="Clear Notepad"
+        onConfirm={handleConfirmClearNotepad}
+        onCancel={() => setIsClearModalOpen(false)}
+      />
+    </>
   );
 };
 
