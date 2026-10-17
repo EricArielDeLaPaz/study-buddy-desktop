@@ -176,7 +176,7 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col gap-5 p-6 text-white font-sans">
+    <div className="flex flex-col gap-6 p-6 text-white font-sans">
       {/* Header */}
       <div>
         <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
@@ -187,14 +187,14 @@ export const SettingsView: React.FC = () => {
         </p>
       </div>
 
-      {/* 4 Dedicated Cards Grid */}
-      <div className="grid grid-cols-12 gap-4">
-        {/* 1. APPEARANCE CARD */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
+      {/* 4 Dedicated Content-Hugging Cards Grid (items-start + h-fit + gap-6) */}
+      <div className="grid grid-cols-12 items-start gap-6">
+        {/* 1. APPEARANCE CARD (h-fit: hugs directly below Dark | Light | Match system buttons) */}
+        <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <div className="flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-white">Appearance</h3>
-              <span className="rounded-full bg-[#2A244D] px-2.5 py-0.5 text-[11px] font-semibold text-[#C4B5FD]">
+              <span className="rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-violet-950/60 dark:text-violet-300 dark:border-violet-800/40 px-2.5 py-0.5 text-[11px] font-medium">
                 {appearance === 'system'
                   ? 'Match system'
                   : appearance === 'dark'
@@ -207,7 +207,7 @@ export const SettingsView: React.FC = () => {
             </p>
           </div>
 
-          <div className="mt-4 grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-3 gap-2.5">
             {[
               { id: 'dark', label: 'Dark' },
               { id: 'light', label: 'Light' },
@@ -221,10 +221,10 @@ export const SettingsView: React.FC = () => {
                   onClick={() =>
                     handleSelectAppearance(opt.id as AppearanceMode)
                   }
-                  className={`rounded-xl border py-2.5 text-[12.5px] font-semibold transition cursor-pointer ${
+                  className={`rounded-xl border py-2.5 text-[12.5px] font-semibold transition-all duration-150 ease-out cursor-pointer ${
                     isSelected
-                      ? 'border-[#7C3AED] bg-[#A594F9] text-[#12111A] font-bold shadow-sm'
-                      : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:border-[#52438F] hover:text-white'
+                      ? 'border-violet-600 bg-violet-600 !text-white font-bold shadow-sm hover:bg-violet-700 hover:shadow-md hover:shadow-violet-500/20 active:scale-[0.98]'
+                      : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98]'
                   }`}
                 >
                   {opt.label}
@@ -234,8 +234,8 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. BEHAVIOR CARD */}
-        <div className="col-span-6 flex flex-col gap-4 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
+        {/* 2. BEHAVIOR CARD (h-fit) */}
+        <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <h3 className="text-[15px] font-bold text-white">Behavior</h3>
 
           {/* Launch at startup toggle */}
@@ -253,12 +253,12 @@ export const SettingsView: React.FC = () => {
               role="switch"
               aria-checked={launchAtStartup}
               onClick={() => setLaunchAtStartup((prev) => !prev)}
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                launchAtStartup ? 'bg-[#A594F9]' : 'bg-[#2E2A45]'
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-all duration-150 ease-out cursor-pointer ${
+                launchAtStartup ? 'bg-violet-600' : 'bg-[#2E2A45]'
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-[#12111A] transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                   launchAtStartup ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
@@ -278,12 +278,12 @@ export const SettingsView: React.FC = () => {
               role="switch"
               aria-checked={soundsEnabled}
               onClick={() => setSoundsEnabled((prev) => !prev)}
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                soundsEnabled ? 'bg-[#A594F9]' : 'bg-[#2E2A45]'
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-all duration-150 ease-out cursor-pointer ${
+                soundsEnabled ? 'bg-violet-600' : 'bg-[#2E2A45]'
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-[#12111A] transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                   soundsEnabled ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
@@ -306,10 +306,10 @@ export const SettingsView: React.FC = () => {
                     key={tone.id}
                     type="button"
                     onClick={() => handleSelectAndPlayChime(tone.id)}
-                    className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
+                    className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition-all duration-150 ease-out cursor-pointer ${
                       active
-                        ? 'border-[#7C3AED] bg-[#A594F9] text-[#12111A] font-bold'
-                        : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:border-[#52438F] hover:text-white'
+                        ? 'border-violet-600 bg-violet-600 !text-white font-bold shadow-sm hover:bg-violet-700 active:scale-[0.98]'
+                        : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98]'
                     }`}
                   >
                     {tone.label}
@@ -321,10 +321,10 @@ export const SettingsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleSelectAndPlayChime('custom')}
-                  className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer max-w-[130px] truncate ${
+                  className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition-all duration-150 ease-out cursor-pointer max-w-[130px] truncate ${
                     selectedChime === 'custom'
-                      ? 'border-[#7C3AED] bg-[#A594F9] text-[#12111A] font-bold'
-                      : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:border-[#52438F] hover:text-white'
+                      ? 'border-violet-600 bg-violet-600 !text-white font-bold shadow-sm hover:bg-violet-700 active:scale-[0.98]'
+                      : 'border-[#2E2A45] bg-[#120F1D] text-[#C4B5FD] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98]'
                   }`}
                 >
                   ♪ {customChime.name}
@@ -344,7 +344,7 @@ export const SettingsView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => chimeFileInputRef.current?.click()}
-                className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#12111A] transition cursor-pointer"
+                className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[12px] font-semibold text-[#C4B5FD] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
               >
                 Upload Chime
               </button>
@@ -352,12 +352,13 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. ACCOUNT CARD */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
+        {/* 3. ACCOUNT CARD (h-fit: hugs comfortably beneath Sign out & Delete account buttons) */}
+        <div className="col-span-6 h-fit flex flex-col gap-4 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <h3 className="text-[15px] font-bold text-white">Account</h3>
             <p className="mt-1.5 text-[13px] font-medium text-[#C4B5FD]">
-              Signed in as <span className="font-semibold text-white">{accountEmail}</span>
+              Signed in as{' '}
+              <span className="font-semibold text-white">{accountEmail}</span>
             </p>
             {accountNotice && (
               <p className="mt-1.5 text-[12px] font-semibold text-[#4ADE80]">
@@ -366,11 +367,11 @@ export const SettingsView: React.FC = () => {
             )}
           </div>
 
-          <div className="mt-5 flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setConfirmAction('sign_out')}
-              className="rounded-xl border border-[#2E2A45] bg-[#232136] px-4 py-2 text-[12.5px] font-semibold text-white hover:border-[#52438F] hover:bg-[#2A244D] transition cursor-pointer"
+              className="rounded-xl border border-[#2E2A45] bg-[#232136] px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
             >
               Sign out
             </button>
@@ -378,15 +379,15 @@ export const SettingsView: React.FC = () => {
             <button
               type="button"
               onClick={() => setConfirmAction('delete_account')}
-              className="rounded-xl bg-[#FF6584]/20 text-[#FF6584] border border-[#FF6584]/30 hover:bg-[#FF6584]/30 px-4 py-2 text-[12.5px] font-semibold transition cursor-pointer"
+              className="rounded-xl bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 hover:border-rose-400 dark:bg-[#FF6584]/20 dark:text-[#FF6584] dark:border-[#FF6584]/30 dark:hover:bg-rose-900/60 dark:hover:border-rose-700 active:scale-[0.98] px-4 py-2 text-[12.5px] font-semibold transition-all duration-150 ease-out cursor-pointer"
             >
               Delete account
             </button>
           </div>
         </div>
 
-        {/* 4. ALERTS CARD */}
-        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
+        {/* 4. ALERTS CARD (h-fit) */}
+        <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <h3 className="text-[15px] font-bold text-white">Alerts</h3>
             <p className="mt-1 text-[12.5px] text-[#9490A8]">
@@ -394,7 +395,7 @@ export const SettingsView: React.FC = () => {
             </p>
           </div>
 
-          <div className="mt-4 flex items-center justify-between rounded-xl border border-[#2E2A45] bg-[#120F1D] p-3.5">
+          <div className="flex items-center justify-between rounded-xl border border-[#2E2A45] bg-[#120F1D] p-3.5">
             <div className="pr-3">
               <p className="text-[13.5px] font-semibold text-white">
                 Route reminders to phone only
@@ -411,12 +412,12 @@ export const SettingsView: React.FC = () => {
               onClick={() =>
                 setRouteRemindersToPhoneOnly((prev) => !prev)
               }
-              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                routeRemindersToPhoneOnly ? 'bg-[#A594F9]' : 'bg-[#2E2A45]'
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-all duration-150 ease-out cursor-pointer ${
+                routeRemindersToPhoneOnly ? 'bg-violet-600' : 'bg-[#2E2A45]'
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-[#12111A] transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                   routeRemindersToPhoneOnly ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
