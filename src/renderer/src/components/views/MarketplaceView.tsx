@@ -9,11 +9,18 @@ import {
   ChibiCompanionMode,
 } from '../companion/ChibiCompanion';
 import {
+  ACTIVE_COMPANION_STORAGE_KEY,
+  ActiveCompanionSelection,
+  BuddyAnimationSlotConfig,
   loadUserBuddyPresets,
   USER_BUDDY_PRESETS_STORAGE_KEY,
   UserBuddyPreset,
 } from './BuddyStudioView';
 import { playChime } from '../../utils/audio';
+
+export interface MarketplaceViewProps {
+  onNavigateToBuddy?: () => void;
+}
 
 type MarketplaceFilter = 'All' | 'Study' | 'Calm' | 'Fun' | 'Minimal' | 'Warm';
 type PresetApplyMode = 'create_new' | 'override_current';
@@ -100,7 +107,9 @@ const CATEGORY_TOGGLES: ReadonlyArray<{
   { key: 'Status', subtitle: 'Distraction nudge & sleeping states' },
 ];
 
-export const MarketplaceView: React.FC = () => {
+export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
+  onNavigateToBuddy,
+}) => {
   const [presets, setPresets] = useState<CommunityPreset[]>(
     INITIAL_COMMUNITY_PRESETS
   );
@@ -139,7 +148,7 @@ export const MarketplaceView: React.FC = () => {
     Status: true,
   });
 
-  // "Share your Buddy to Marketplace" Modal State (Filtered strictly to Custom Presets)
+  // "Share your Buddy to Marketplace" Modal State
   const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
   const [publishSourcePresetId, setPublishSourcePresetId] = useState<string>(
     () => customOnlyPresets[0]?.id ?? ''
@@ -200,88 +209,154 @@ export const MarketplaceView: React.FC = () => {
     );
   };
 
+  /**
+   * Builds the animation slots array for the newly created or overridden preset
+   * based on the user's selected category toggles.
+   */
+  const buildConfiguredSlots = (
+    presetTitle: string
+  ): BuddyAnimationSlotConfig[] => {
+    const configured: BuddyAnimationSlotConfig[] = [];
+
+    if (selectedCategories.Idle) {
+      configured.push({
+        id: `slot-idle-${Date.now()}`,
+        label: 'Study focus loop',
+        slotKey: 'Idle',
+        description: `${presetTitle} focus loop`,
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      });
+    }
+    if (selectedCategories.Reminder) {
+      configured.push(
+        {
+          id: `slot-water-${Date.now()}`,
+          label: 'Water break',
+          slotKey: 'Hydration',
+          description: `${presetTitle} hydration animation`,
+          mode: 'hydration',
+          reminderTrigger: 'Drink Water',
+        },
+        {
+          id: `slot-break-${Date.now()}`,
+          label: 'Break time stretch',
+          slotKey: 'Break',
+          description: `${presetTitle} stretch animation`,
+          mode: 'bathroom',
+          reminderTrigger: 'Bathroom Break',
+        }
+      );
+    }
+    if (selectedCategories.Success) {
+      configured.push({
+        id: `slot-success-${Date.now()}`,
+        label: 'Goal celebration',
+        slotKey: 'Success',
+        description: `${presetTitle} celebration sparkle loop`,
+        mode: 'celebrating',
+        reminderTrigger: 'None',
+      });
+    }
+    if (selectedCategories.Status) {
+      configured.push({
+        id: `slot-alert-${Date.now()}`,
+        label: 'Distraction alert',
+        slotKey: 'Alert',
+        description: `${presetTitle} intervention nudge`,
+        mode: 'intervention',
+        reminderTrigger: 'App Rules Nudge',
+      });
+    }
+
+    if (configured.length === 0) {
+      configured.push({
+        id: `slot-default-${Date.now()}`,
+        label: 'Study focus loop',
+        slotKey: 'Idle',
+        description: `${presetTitle} focus loop`,
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      });
+    }
+
+    return configured;
+  };
+
+  /**
+   * Saves the newly created or overridden preset into the active buddy roster,
+   * sets `selectedBuddyId` (`ACTIVE_COMPANION_STORAGE_KEY`) to that buddy,
+   * and navigates directly to the Buddy tab (`setActiveTab('buddy')`).
+   */
   const handleApplyPreset = () => {
     playChime('break_start');
-    const enabledCount =
-      Object.values(selectedCategories).filter(Boolean).length;
+    const configuredSlots = buildConfiguredSlots(activePreset.title);
+
+    let equippedBuddy: UserBuddyPreset;
+    let updatedRoster: UserBuddyPreset[];
 
     if (applyMode === 'create_new') {
-      const createdUserPreset: UserBuddyPreset = {
+      equippedBuddy = {
         id: `preset-mkt-${Date.now()}`,
         name: newPresetCustomName.trim() || activePreset.title,
         source: 'Marketplace',
         accentBg: '#3C3173',
         defaultMode: activePreset.previewMode,
-        slots: [
-          {
-            id: 'slot-idle',
-            label: 'Study focus loop',
-            slotKey: 'Idle',
-            description: `${activePreset.title} focus animation`,
-            mode: 'idle_studying',
-          },
-          {
-            id: 'slot-water',
-            label: 'Water break',
-            slotKey: 'Hydration',
-            description: `${activePreset.title} hydration animation`,
-            mode: 'hydration',
-          },
-          {
-            id: 'slot-break',
-            label: 'Break time stretch',
-            slotKey: 'Break',
-            description: `${activePreset.title} stretch animation`,
-            mode: 'bathroom',
-          },
-          {
-            id: 'slot-alert',
-            label: 'Distraction alert',
-            slotKey: 'Alert',
-            description: `${activePreset.title} alert animation`,
-            mode: 'intervention',
-          },
-        ],
+        slots: configuredSlots,
       };
-      const updated = [createdUserPreset, ...userActivePresets];
-      setUserActivePresets(updated);
-      setOverrideTargetPresetId(createdUserPreset.id);
-      try {
-        localStorage.setItem(
-          USER_BUDDY_PRESETS_STORAGE_KEY,
-          JSON.stringify(updated)
-        );
-      } catch {
-        // Ignore storage error
-      }
-      setAppliedBanner(
-        `Created preset "${createdUserPreset.name}" (${enabledCount} categories active)`
-      );
+      updatedRoster = [equippedBuddy, ...userActivePresets];
     } else {
-      const targetObj = userActivePresets.find(
-        (p) => p.id === overrideTargetPresetId
+      const existingTarget =
+        userActivePresets.find((p) => p.id === overrideTargetPresetId) ??
+        userActivePresets[0];
+
+      equippedBuddy = {
+        ...(existingTarget ?? {
+          id: `preset-mkt-${Date.now()}`,
+          source: 'Marketplace' as const,
+          accentBg: '#3C3173',
+        }),
+        name: existingTarget ? existingTarget.name : activePreset.title,
+        defaultMode: activePreset.previewMode,
+        slots: configuredSlots,
+      };
+
+      updatedRoster = userActivePresets.map((p) =>
+        p.id === equippedBuddy.id ? equippedBuddy : p
       );
-      const targetName = targetObj?.name || 'Selected Preset';
-      const updated = userActivePresets.map((p) =>
-        p.id === overrideTargetPresetId
-          ? {
-              ...p,
-              name: `${activePreset.title} (${p.source})`,
-              defaultMode: activePreset.previewMode,
-            }
-          : p
+    }
+
+    setUserActivePresets(updatedRoster);
+
+    // 1. Persist updated buddy roster & set active selectedBuddyId for BuddyStudioView
+    const activeSelectionPayload: ActiveCompanionSelection = {
+      id: equippedBuddy.id,
+      name: equippedBuddy.name,
+      kind: equippedBuddy.source,
+      slots: configuredSlots,
+    };
+
+    try {
+      localStorage.setItem(
+        USER_BUDDY_PRESETS_STORAGE_KEY,
+        JSON.stringify(updatedRoster)
       );
-      setUserActivePresets(updated);
-      try {
-        localStorage.setItem(
-          USER_BUDDY_PRESETS_STORAGE_KEY,
-          JSON.stringify(updated)
-        );
-      } catch {
-        // Ignore storage error
-      }
-      setAppliedBanner(
-        `Overwrote "${targetName}" with "${activePreset.title}" (${enabledCount} categories active)`
+      localStorage.setItem(
+        ACTIVE_COMPANION_STORAGE_KEY,
+        JSON.stringify(activeSelectionPayload)
+      );
+      window.dispatchEvent(new CustomEvent('study-buddy:companion-updated'));
+    } catch {
+      // Ignore storage quota error
+    }
+
+    // 2. Programmatically navigate to the Buddy tab so the user immediately sees
+    // the newly created/overridden buddy selected in the roster and preview stage
+    if (onNavigateToBuddy) {
+      onNavigateToBuddy();
+    } else {
+      window.dispatchEvent(
+        new CustomEvent('study-buddy:navigate-tab', { detail: 'buddy' })
       );
     }
   };
@@ -320,7 +395,7 @@ export const MarketplaceView: React.FC = () => {
           <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
             Companion Marketplace
           </h2>
-          <p className="mt-1 text-[13px] text-[#9E97B8]">
+          <p className="mt-1 text-[13px] text-[#9490A8]">
             Pair your earned Mambo companions with community animation packs or publish your own custom creation.
           </p>
         </div>
@@ -335,7 +410,7 @@ export const MarketplaceView: React.FC = () => {
           <button
             type="button"
             onClick={handleOpenPublishModal}
-            className="flex items-center gap-2 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] transition cursor-pointer shrink-0"
+            className="flex items-center gap-2 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#12111A] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer shrink-0"
           >
             <span>+ Add to Marketplace</span>
           </button>
@@ -356,7 +431,7 @@ export const MarketplaceView: React.FC = () => {
             </span>
           </div>
 
-          <div className="mt-3 flex flex-col gap-2 overflow-y-auto scrollbar-thin">
+          <div className="mt-3 flex flex-col gap-2 overflow-y-auto">
             {COMPANION_LEVEL_ROSTER.map((buddy) => {
               const isSelected = selectedEarnedBuddyId === buddy.id;
               return (
@@ -384,7 +459,7 @@ export const MarketplaceView: React.FC = () => {
                     </p>
                     <p
                       className={`text-[10.5px] truncate ${
-                        buddy.unlocked ? 'text-[#C4B5FD]' : 'text-[#8E87A8]'
+                        buddy.unlocked ? 'text-[#C4B5FD]' : 'text-[#9490A8]'
                       }`}
                     >
                       {buddy.unlocked
@@ -400,7 +475,7 @@ export const MarketplaceView: React.FC = () => {
           </div>
         </div>
 
-        {/* CENTER PANEL: Marketplace Grid (Strict Purple/Indigo Palette) */}
+        {/* CENTER PANEL: Marketplace Grid */}
         <div className="col-span-5 flex flex-col rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#262038] pb-3">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -413,8 +488,8 @@ export const MarketplaceView: React.FC = () => {
                     onClick={() => setSelectedFilter(pill)}
                     className={`rounded-full px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
                       active
-                        ? 'bg-[#A594F9] text-[#171329]'
-                        : 'bg-[#141020] text-[#9E97B8] hover:bg-[#261E42] hover:text-white'
+                        ? 'bg-[#A594F9] text-[#12111A]'
+                        : 'bg-[#141020] text-[#9490A8] hover:bg-[#261E42] hover:text-white'
                     }`}
                   >
                     {pill}
@@ -424,7 +499,7 @@ export const MarketplaceView: React.FC = () => {
             </div>
           </div>
 
-          <div className="mt-3.5 grid grid-cols-2 gap-3 overflow-y-auto scrollbar-thin">
+          <div className="mt-3.5 grid grid-cols-2 gap-3 overflow-y-auto">
             {filteredPresets.map((preset) => {
               const isSelected = preset.id === activePreset.id;
               return (
@@ -443,7 +518,7 @@ export const MarketplaceView: React.FC = () => {
                       <span className="text-[11px] font-semibold text-[#A594F9]">
                         {preset.author}
                       </span>
-                      <span className="text-[10.5px] font-medium text-[#9E97B8]">
+                      <span className="text-[10.5px] font-medium text-[#9490A8]">
                         ⬇ {preset.downloads}
                       </span>
                     </div>
@@ -459,7 +534,7 @@ export const MarketplaceView: React.FC = () => {
                     <p className="text-[14px] font-bold text-white">
                       {preset.title}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#9E97B8]">
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#9490A8]">
                       {preset.description}
                     </p>
                   </div>
@@ -477,7 +552,7 @@ export const MarketplaceView: React.FC = () => {
                 <h3 className="text-[15px] font-bold text-white">
                   {activePreset.title}
                 </h3>
-                <p className="text-[11.5px] text-[#9E97B8]">
+                <p className="text-[11.5px] text-[#9490A8]">
                   Base buddy:{' '}
                   <span className="font-semibold text-[#C4B5FD]">
                     {activeEarnedBuddy.name}
@@ -498,7 +573,7 @@ export const MarketplaceView: React.FC = () => {
                 className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[12px] font-semibold transition cursor-pointer ${
                   applyMode === 'create_new'
                     ? 'border-[#A594F9] bg-[#261E42] text-white'
-                    : 'border-[#2C253E] bg-[#141020] text-[#9E97B8] hover:text-white'
+                    : 'border-[#2C253E] bg-[#141020] text-[#9490A8] hover:text-white'
                 }`}
               >
                 <span>Create new preset</span>
@@ -517,7 +592,7 @@ export const MarketplaceView: React.FC = () => {
                   value={newPresetCustomName}
                   onChange={(e) => setNewPresetCustomName(e.target.value)}
                   placeholder="Enter new preset name..."
-                  className="rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-1.5 text-[12px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                  className="rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-1.5 text-[12px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
                 />
               )}
 
@@ -527,7 +602,7 @@ export const MarketplaceView: React.FC = () => {
                 className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[12px] font-semibold transition cursor-pointer ${
                   applyMode === 'override_current'
                     ? 'border-[#A594F9] bg-[#261E42] text-white'
-                    : 'border-[#2C253E] bg-[#141020] text-[#9E97B8] hover:text-white'
+                    : 'border-[#2C253E] bg-[#141020] text-[#9490A8] hover:text-white'
                 }`}
               >
                 <span>Override current preset</span>
@@ -542,7 +617,7 @@ export const MarketplaceView: React.FC = () => {
 
               {applyMode === 'override_current' && (
                 <div className="flex flex-col gap-1 pt-0.5">
-                  <label className="text-[11px] font-medium text-[#9E97B8]">
+                  <label className="text-[11px] font-medium text-[#9490A8]">
                     Select active preset to replace:
                   </label>
                   <select
@@ -552,7 +627,7 @@ export const MarketplaceView: React.FC = () => {
                   >
                     {userActivePresets.map((preset) => (
                       <option key={preset.id} value={preset.id}>
-                        {preset.name} ({preset.source})
+                        {preset.name}
                       </option>
                     ))}
                   </select>
@@ -582,7 +657,7 @@ export const MarketplaceView: React.FC = () => {
                       <p className="text-[12.5px] font-bold text-white">
                         {item.key}
                       </p>
-                      <p className="text-[10.5px] text-[#9E97B8]">
+                      <p className="text-[10.5px] text-[#9490A8]">
                         {item.subtitle}
                       </p>
                     </div>
@@ -600,7 +675,7 @@ export const MarketplaceView: React.FC = () => {
                       }`}
                     >
                       <span
-                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-[#171329] transition-transform ${
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-[#12111A] transition-transform ${
                           isChecked ? 'translate-x-4' : 'translate-x-1'
                         }`}
                       />
@@ -614,11 +689,11 @@ export const MarketplaceView: React.FC = () => {
           <button
             type="button"
             onClick={handleApplyPreset}
-            className="mt-4 w-full rounded-xl bg-[#A594F9] py-2.5 px-4 text-[13px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] active:scale-[0.99] transition cursor-pointer"
+            className="mt-4 w-full rounded-xl bg-[#A594F9] py-2.5 px-4 text-[13px] font-bold text-[#12111A] shadow-md hover:bg-[#B8A9FA] active:scale-[0.99] transition cursor-pointer"
           >
             {applyMode === 'create_new'
-              ? 'Create & Equip Preset'
-              : 'Replace Selected Preset'}
+              ? 'Create & Open in Buddy Studio'
+              : 'Override & Open in Buddy Studio'}
           </button>
         </div>
       </div>
@@ -635,14 +710,14 @@ export const MarketplaceView: React.FC = () => {
                 <h3 className="font-display text-[17px] font-bold text-white">
                   Share your Buddy to Marketplace
                 </h3>
-                <p className="text-[11.5px] text-[#9E97B8]">
+                <p className="text-[11.5px] text-[#9490A8]">
                   Only user-created Custom presets can be shared publicly.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsPublishModalOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#261E42] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#261E42] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#12111A] transition cursor-pointer"
               >
                 ✕
               </button>
@@ -693,7 +768,7 @@ export const MarketplaceView: React.FC = () => {
                 value={publishTitle}
                 onChange={(e) => setPublishTitle(e.target.value)}
                 placeholder="e.g., Midnight Matcha Mambo"
-                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
               />
             </div>
 
@@ -712,8 +787,8 @@ export const MarketplaceView: React.FC = () => {
                       onClick={() => togglePublishTag(tag)}
                       className={`rounded-full border px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
                         selected
-                          ? 'border-[#A594F9] bg-[#A594F9] text-[#171329]'
-                          : 'border-[#2C253E] bg-[#0E0B16] text-[#9E97B8] hover:border-[#4E4187] hover:text-white'
+                          ? 'border-[#A594F9] bg-[#A594F9] text-[#12111A]'
+                          : 'border-[#2C253E] bg-[#0E0B16] text-[#9490A8] hover:border-[#4E4187] hover:text-white'
                       }`}
                     >
                       {selected ? `✓ ${tag}` : tag}
@@ -733,7 +808,7 @@ export const MarketplaceView: React.FC = () => {
                 value={publishDescription}
                 onChange={(e) => setPublishDescription(e.target.value)}
                 placeholder="Describe your custom Mambo companion theme and animations..."
-                className="mt-1.5 w-full resize-none rounded-xl border border-[#4E4187] bg-[#0E0B16] p-2.5 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                className="mt-1.5 w-full resize-none rounded-xl border border-[#4E4187] bg-[#0E0B16] p-2.5 text-[12.5px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
               />
             </div>
 
@@ -748,7 +823,7 @@ export const MarketplaceView: React.FC = () => {
               <button
                 type="submit"
                 disabled={customOnlyPresets.length === 0}
-                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] hover:bg-[#B5A7FA] disabled:opacity-50 cursor-pointer"
+                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#12111A] hover:bg-[#B8A9FA] disabled:opacity-50 cursor-pointer"
               >
                 Publish Preset
               </button>

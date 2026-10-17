@@ -11,6 +11,21 @@ export type NoteListType =
   | 'checklist'
   | 'dash';
 
+export interface WindowRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ScratchpadProps {
+  rect?: WindowRect;
+  onRectChange?: (
+    nextRect: WindowRect,
+    interaction: 'drag' | 'resize'
+  ) => void;
+}
+
 export interface NoteAttachment {
   id: string;
   name: string;
@@ -199,7 +214,10 @@ function createPageScreenshotDataUrl(): { name: string; dataUrl: string } {
   };
 }
 
-export const Scratchpad: React.FC = () => {
+export const Scratchpad: React.FC<ScratchpadProps> = ({
+  rect: controlledRect,
+  onRectChange,
+}) => {
   const {
     scratchpad,
     updateScratchpadTitle,
@@ -242,18 +260,28 @@ export const Scratchpad: React.FC = () => {
     null
   );
 
-  // Floating Window Position & Resizable Dimensions
-  const [position, setPosition] = useState<{ x: number; y: number }>({
-    x: 42,
-    y: 52,
-  });
-  const [windowSize, setWindowSize] = useState<{
-    width: number;
-    height: number;
-  }>({
-    width: 430,
+  // Fallback internal rect if not controlled by App.tsx collision engine
+  const [internalRect, setInternalRect] = useState<WindowRect>({
+    x: 24,
+    y: 40,
+    width: 410,
     height: 560,
   });
+
+  const activeRect = controlledRect ?? internalRect;
+  const activeRectRef = useRef<WindowRect>(activeRect);
+  activeRectRef.current = activeRect;
+
+  const updateRect = useCallback(
+    (nextRect: WindowRect, interaction: 'drag' | 'resize') => {
+      if (onRectChange) {
+        onRectChange(nextRect, interaction);
+      } else {
+        setInternalRect(nextRect);
+      }
+    },
+    [onRectChange]
+  );
 
   const dragOffsetRef = useRef<{ startX: number; startY: number } | null>(null);
   const listMenuRef = useRef<HTMLDivElement | null>(null);
@@ -567,7 +595,7 @@ export const Scratchpad: React.FC = () => {
       const deltaY = moveEvent.clientY - startY;
       const nextWidth = Math.max(
         110,
-        Math.min(windowSize.width - 64, initialWidth + deltaX)
+        Math.min(activeRectRef.current.width - 64, initialWidth + deltaX)
       );
       const nextHeight = Math.max(
         70,
@@ -607,6 +635,7 @@ export const Scratchpad: React.FC = () => {
     );
   };
 
+  // Notepad Window Resize Handler (Right, Bottom, Bottom-Right Corner)
   const handleStartWindowResize = (
     e: React.MouseEvent,
     direction: 'right' | 'bottom' | 'corner'
@@ -615,23 +644,24 @@ export const Scratchpad: React.FC = () => {
     e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
-    const startWidth = windowSize.width;
-    const startHeight = windowSize.height;
+    const startRect = activeRectRef.current;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
 
-      setWindowSize({
+      const candidateRect: WindowRect = {
+        ...startRect,
         width:
           direction === 'right' || direction === 'corner'
-            ? Math.max(350, Math.min(820, startWidth + deltaX))
-            : startWidth,
+            ? Math.max(350, Math.min(760, startRect.width + deltaX))
+            : startRect.width,
         height:
           direction === 'bottom' || direction === 'corner'
-            ? Math.max(360, Math.min(860, startHeight + deltaY))
-            : startHeight,
-      });
+            ? Math.max(360, Math.min(860, startRect.height + deltaY))
+            : startRect.height,
+      };
+      updateRect(candidateRect, 'resize');
     };
 
     const handleMouseUp = () => {
@@ -681,28 +711,26 @@ export const Scratchpad: React.FC = () => {
       return;
     }
 
+    const startRect = activeRectRef.current;
     dragOffsetRef.current = {
-      startX: e.clientX - position.x,
-      startY: e.clientY - position.y,
+      startX: e.clientX - startRect.x,
+      startY: e.clientY - startRect.y,
     };
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!dragOffsetRef.current) return;
-      const nextX = Math.max(
-        12,
-        Math.min(
-          window.innerWidth - 180,
-          moveEvent.clientX - dragOffsetRef.current.startX
-        )
+      const current = activeRectRef.current;
+      const nextX = moveEvent.clientX - dragOffsetRef.current.startX;
+      const nextY = moveEvent.clientY - dragOffsetRef.current.startY;
+
+      updateRect(
+        {
+          ...current,
+          x: nextX,
+          y: nextY,
+        },
+        'drag'
       );
-      const nextY = Math.max(
-        12,
-        Math.min(
-          window.innerHeight - 80,
-          moveEvent.clientY - dragOffsetRef.current.startY
-        )
-      );
-      setPosition({ x: nextX, y: nextY });
     };
 
     const handleMouseUp = () => {
@@ -724,10 +752,10 @@ export const Scratchpad: React.FC = () => {
         onMouseEnter={() => setInteractiveRegionHovered('scratchpad', true)}
         onMouseLeave={() => setInteractiveRegionHovered('scratchpad', false)}
         style={{
-          left: `${position.x}px`,
-          top: `${position.y}px`,
-          width: `${windowSize.width}px`,
-          height: isScratchpadMinimized ? 'auto' : `${windowSize.height}px`,
+          left: `${activeRect.x}px`,
+          top: `${activeRect.y}px`,
+          width: `${activeRect.width}px`,
+          height: isScratchpadMinimized ? 'auto' : `${activeRect.height}px`,
         }}
         className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none font-sans"
       >
@@ -740,7 +768,7 @@ export const Scratchpad: React.FC = () => {
           className="hidden"
         />
 
-        {/* 1. HEADER: "Notepad" */}
+        {/* 1. HEADER: "Notepad" & High-Contrast Cloud Synced Pill */}
         <div
           onMouseDown={handleHeaderMouseDown}
           className="flex items-center justify-between border-b border-[#262038] bg-[#151120] px-5 py-3.5 cursor-move"
@@ -757,23 +785,22 @@ export const Scratchpad: React.FC = () => {
               title="Click to toggle Cloud Synced / Offline status"
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition cursor-pointer ${
                 isSynced
-                  ? 'bg-[#0E362D] text-[#4ADE80] border border-[#17594A]'
-                  : 'bg-[#3A2813] text-[#FBBF24] border border-[#5C3F1C]'
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-[#0E362D] dark:text-[#4ADE80] dark:border-[#17594A]'
+                  : 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-[#3A2813] dark:text-[#FBBF24] dark:border-[#5C3F1C]'
               }`}
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
+                  isSynced
+                    ? 'bg-emerald-600 dark:bg-[#4ADE80]'
+                    : 'bg-amber-600 dark:bg-[#FBBF24]'
                 }`}
               />
               <span>{isSynced ? 'Cloud Synced' : 'Offline · Local'}</span>
             </button>
           </div>
 
-          <div
-            data-no-drag="true"
-            className="flex items-center gap-2.5"
-          >
+          <div data-no-drag="true" className="flex items-center gap-2.5">
             <span className="text-[11px] font-medium text-[#9490A8]">
               {isSynced ? 'Synced just now' : 'Saved locally'}
             </span>
@@ -828,7 +855,7 @@ export const Scratchpad: React.FC = () => {
 
         {!isScratchpadMinimized && (
           <>
-            {/* 2. HIERARCHY ROW */}
+            {/* 2. HIERARCHY ROW: WCAG AA Compliant Pills & Export .md Action */}
             <div className="flex items-center justify-between border-b border-[#231D34] bg-[#171324] px-5 py-2.5">
               <div className="flex items-center gap-1.5">
                 {HIERARCHY_OPTIONS.map((item) => {
@@ -840,8 +867,8 @@ export const Scratchpad: React.FC = () => {
                       onClick={() => handleSelectHierarchy(item.id)}
                       className={`rounded-full px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
                         isSelected
-                          ? 'bg-[#A594F9] text-[#12111A] shadow-sm'
-                          : 'bg-[#221C34] text-[#C4B5FD] hover:bg-[#2E2646] hover:text-white'
+                          ? 'bg-indigo-600 !text-white dark:bg-[#A594F9] dark:!text-[#12111A] shadow-sm'
+                          : 'text-zinc-800 bg-zinc-200/80 hover:bg-zinc-300 dark:bg-[#221C34] dark:text-[#C4B5FD] dark:hover:bg-[#2E2646] dark:hover:text-white'
                       }`}
                     >
                       {item.label}
@@ -854,7 +881,7 @@ export const Scratchpad: React.FC = () => {
                 type="button"
                 onClick={exportNotesAsMarkdown}
                 title="Export notes as Markdown (.md)"
-                className="text-[11px] font-semibold text-[#A594F9] hover:text-[#C4B5FD] transition cursor-pointer"
+                className="text-[11.5px] font-semibold text-zinc-900 hover:text-indigo-700 dark:text-[#A594F9] dark:hover:text-[#C4B5FD] transition cursor-pointer"
               >
                 Export .md
               </button>
@@ -869,8 +896,8 @@ export const Scratchpad: React.FC = () => {
                   title="Bold"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] font-bold transition cursor-pointer ${
                     activeBlock?.bold
-                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
-                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                      ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
+                      : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
                 >
                   B
@@ -882,8 +909,8 @@ export const Scratchpad: React.FC = () => {
                   title="Italic"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] italic font-serif font-semibold transition cursor-pointer ${
                     activeBlock?.italic
-                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
-                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                      ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
+                      : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
                 >
                   I
@@ -895,8 +922,8 @@ export const Scratchpad: React.FC = () => {
                   title="Underline"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] underline font-semibold transition cursor-pointer ${
                     activeBlock?.underline
-                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
-                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                      ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
+                      : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
                 >
                   U
@@ -908,8 +935,8 @@ export const Scratchpad: React.FC = () => {
                   title="Strikethrough"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] line-through font-semibold transition cursor-pointer ${
                     activeBlock?.strikethrough
-                      ? 'bg-[#2A244D] text-white border border-[#A594F9]'
-                      : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                      ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
+                      : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
                 >
                   S
@@ -926,8 +953,8 @@ export const Scratchpad: React.FC = () => {
                     aria-expanded={isListMenuOpen}
                     className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-semibold transition cursor-pointer ${
                       activeBlock?.listType && activeBlock.listType !== 'none'
-                        ? 'bg-[#2A244D] text-white border border-[#A594F9]'
-                        : 'bg-[#120E1C] text-[#C4B5FD] hover:bg-[#251E38] hover:text-white'
+                        ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
+                        : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                     }`}
                   >
                     <span className="text-[13px] leading-none">≡</span>
@@ -971,7 +998,7 @@ export const Scratchpad: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsClearModalOpen(true)}
-                className="text-[11.5px] font-semibold text-[#9490A8] hover:text-red-400 transition cursor-pointer"
+                className="text-[11.5px] font-semibold text-zinc-900 hover:text-rose-700 dark:text-[#9490A8] dark:hover:text-red-400 transition cursor-pointer"
               >
                 Clear
               </button>

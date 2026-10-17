@@ -1,5 +1,6 @@
 // src/renderer/src/components/views/ScheduleView.tsx
 import React, { useState, useRef } from 'react';
+import { ConfirmModal } from '../common/ConfirmModal';
 
 export interface TimeBlockSchedule {
   id: string;
@@ -130,6 +131,11 @@ export const ScheduleView: React.FC = () => {
   const [customFocusMinutes, setCustomFocusMinutes] = useState<number>(35);
   const [customBreakMinutes, setCustomBreakMinutes] = useState<number>(8);
 
+  // Delete Confirmation Modal State
+  const [pendingDeleteBlockId, setPendingDeleteBlockId] = useState<
+    string | null
+  >(null);
+
   // Smart Activation Add Form State
   const [addTargetKind, setAddTargetKind] = useState<'website' | 'app'>(
     'website'
@@ -199,8 +205,9 @@ export const ScheduleView: React.FC = () => {
     setIsBlockModalOpen(false);
   };
 
-  const handleDeleteBlock = (id: string) => {
+  const handleDeleteBlockConfirmed = (id: string) => {
     setBlocks((prev) => prev.filter((b) => b.id !== id));
+    setPendingDeleteBlockId(null);
     setIsBlockModalOpen(false);
   };
 
@@ -237,14 +244,14 @@ export const ScheduleView: React.FC = () => {
   };
 
   return (
-    <div className="relative flex flex-col gap-6 p-6 text-white">
+    <div className="relative flex flex-col gap-6 p-6 text-white font-sans">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[22px] font-bold tracking-tight text-white">
+          <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
             Study Schedule & Smart Activation
           </h2>
-          <p className="mt-1 text-[13px] text-[#9E97B8]">
+          <p className="mt-1 text-[13px] text-[#9490A8]">
             Pair recurring time blocks with monitored study tools for hands-free session activation.
           </p>
         </div>
@@ -252,14 +259,14 @@ export const ScheduleView: React.FC = () => {
         <button
           type="button"
           onClick={handleOpenAddBlockModal}
-          className="flex items-center gap-1.5 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] transition cursor-pointer"
+          className="flex items-center gap-1.5 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#12111A] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer"
         >
           <span>+ Add time block</span>
         </button>
       </div>
 
       {/* Prominent Explanatory Concept Callout */}
-      <blockquote className="flex items-start gap-3.5 rounded-2xl border border-[#4E4187] bg-[#211A36]/90 px-4 py-3.5 text-[13px] leading-relaxed text-[#EAE6F8] shadow-inner">
+      <blockquote className="flex items-start gap-3.5 rounded-2xl border border-[#52438F] bg-[#211A36]/90 px-4 py-3.5 text-[13px] leading-relaxed text-[#E2DFF0] shadow-inner">
         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#3C3173] text-[13px] text-[#A594F9] font-bold">
           ✦
         </span>
@@ -276,7 +283,7 @@ export const ScheduleView: React.FC = () => {
           <h3 className="text-[14.5px] font-bold text-[#E2DFF0]">
             Scheduled Time Blocks ({blocks.length})
           </h3>
-          <span className="text-[11.5px] text-[#8E87A8]">
+          <span className="text-[11.5px] text-[#9490A8]">
             Click the pencil icon to edit or remove a block
           </span>
         </div>
@@ -293,18 +300,18 @@ export const ScheduleView: React.FC = () => {
             <div
               key={block.id}
               onClick={() => handleOpenEditBlockModal(block)}
-              className="flex items-center justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4 hover:border-[#524578] transition cursor-pointer"
+              className="flex items-center justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4 hover:border-[#52438F] transition cursor-pointer"
             >
               <div>
                 <div className="flex items-center gap-2.5">
                   <p className="text-[15px] font-bold text-white">
                     {block.title}
                   </p>
-                  <span className="rounded-full bg-[#261E42] px-2.5 py-0.5 text-[11px] font-semibold text-[#A594F9]">
+                  <span className="rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200/80 dark:bg-[#261E42] dark:text-[#C4B5FD] dark:border-[#52438F] px-2.5 py-0.5 text-[11px] font-semibold">
                     {presetDisplay}
                   </span>
                 </div>
-                <p className="mt-1 text-[12.5px] font-medium text-[#9E97B8]">
+                <p className="mt-1 text-[12.5px] font-medium text-[#9490A8]">
                   {formatTime12h(block.startTime)} –{' '}
                   {formatTime12h(block.endTime)}
                 </p>
@@ -317,8 +324,8 @@ export const ScheduleView: React.FC = () => {
                         key={d}
                         className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold ${
                           active
-                            ? 'bg-[#3C3173] text-white'
-                            : 'bg-[#110E1A] text-[#6E678A]'
+                            ? 'bg-indigo-600 text-white dark:bg-[#3C3173] dark:text-white'
+                            : 'bg-zinc-200 text-zinc-700 dark:bg-[#110E1A] dark:text-[#9490A8]'
                         }`}
                       >
                         {d}
@@ -337,7 +344,7 @@ export const ScheduleView: React.FC = () => {
                 }}
                 title={`Edit ${block.title}`}
                 aria-label={`Edit ${block.title}`}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] hover:border-[#A594F9] transition cursor-pointer"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#12111A] hover:border-[#A594F9] transition cursor-pointer"
               >
                 <svg
                   width="15"
@@ -365,11 +372,11 @@ export const ScheduleView: React.FC = () => {
             <h3 className="text-[15px] font-bold text-white">
               Smart Activation Monitored Apps & Websites
             </h3>
-            <p className="mt-0.5 text-[12px] text-[#9E97B8]">
+            <p className="mt-0.5 text-[12px] text-[#9490A8]">
               Opening any of these during an active schedule block wakes Mambo automatically.
             </p>
           </div>
-          <span className="rounded-full bg-[#241E36] px-3 py-1 text-[11.5px] font-semibold text-[#4ADE80]">
+          <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-[#0E362D] dark:text-[#4ADE80] dark:border-[#17594A] px-3 py-1 text-[11.5px] font-semibold">
             {smartTargets.length} monitored targets
           </span>
         </div>
@@ -385,8 +392,8 @@ export const ScheduleView: React.FC = () => {
               onClick={() => setAddTargetKind('website')}
               className={`rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
                 addTargetKind === 'website'
-                  ? 'bg-[#A594F9] text-[#171329]'
-                  : 'text-[#9E97B8] hover:text-white'
+                  ? 'bg-[#A594F9] text-[#12111A]'
+                  : 'text-[#9490A8] hover:text-white'
               }`}
             >
               Website
@@ -396,8 +403,8 @@ export const ScheduleView: React.FC = () => {
               onClick={() => setAddTargetKind('app')}
               className={`rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
                 addTargetKind === 'app'
-                  ? 'bg-[#A594F9] text-[#171329]'
-                  : 'text-[#9E97B8] hover:text-white'
+                  ? 'bg-[#A594F9] text-[#12111A]'
+                  : 'text-[#9490A8] hover:text-white'
               }`}
             >
               Desktop App
@@ -413,7 +420,7 @@ export const ScheduleView: React.FC = () => {
                 ? 'Custom Tag Name (e.g., University Canvas)'
                 : 'Custom Tag Name (e.g., VS Code (Development))'
             }
-            className="flex-1 min-w-[190px] rounded-lg border border-[#322A4B] bg-[#0E0B16] px-3 py-1.5 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+            className="flex-1 min-w-[190px] rounded-lg border border-[#322A4B] bg-[#0E0B16] px-3 py-1.5 text-[12.5px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
           />
 
           <div className="flex flex-1 min-w-[210px] items-center gap-1.5">
@@ -426,7 +433,7 @@ export const ScheduleView: React.FC = () => {
                   ? 'Target URL (e.g., canvas.instructure.com)'
                   : 'Executable or app name (e.g., Code.exe)'
               }
-              className="w-full rounded-lg border border-[#322A4B] bg-[#0E0B16] px-3 py-1.5 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+              className="w-full rounded-lg border border-[#322A4B] bg-[#0E0B16] px-3 py-1.5 text-[12.5px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
             />
 
             {addTargetKind === 'app' && (
@@ -451,7 +458,7 @@ export const ScheduleView: React.FC = () => {
 
           <button
             type="submit"
-            className="rounded-lg bg-[#A594F9] px-3.5 py-1.5 text-[12px] font-bold text-[#171329] hover:bg-[#B5A7FA] transition cursor-pointer"
+            className="rounded-lg bg-[#A594F9] px-3.5 py-1.5 text-[12px] font-bold text-[#12111A] hover:bg-[#B8A9FA] transition cursor-pointer"
           >
             + Add
           </button>
@@ -468,7 +475,7 @@ export const ScheduleView: React.FC = () => {
                 {target.kind === 'website' ? '🌐' : '💻'}
               </span>
               <span>{target.tagName}</span>
-              <span className="rounded bg-[#171229] px-1.5 py-0.5 text-[10.5px] font-normal text-[#A594F9]">
+              <span className="rounded bg-indigo-100 text-indigo-900 border border-indigo-200/80 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/40 px-1.5 py-0.5 text-[10.5px] font-medium">
                 {target.targetPathOrUrl}
               </span>
               <button
@@ -476,7 +483,7 @@ export const ScheduleView: React.FC = () => {
                 onClick={() => handleRemoveSmartTarget(target.id)}
                 title={`Remove ${target.tagName}`}
                 aria-label={`Remove ${target.tagName}`}
-                className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-[#9E97B8] hover:bg-rose-500/30 hover:text-rose-200 transition cursor-pointer"
+                className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-[#9490A8] hover:bg-rose-500/30 hover:text-rose-200 transition cursor-pointer"
               >
                 ✕
               </button>
@@ -490,10 +497,10 @@ export const ScheduleView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm">
           <form
             onSubmit={handleSaveBlock}
-            className="w-[460px] rounded-2xl border border-[#4E4187] bg-[#1A1626] p-5 shadow-2xl flex flex-col gap-4"
+            className="w-[460px] rounded-2xl border border-[#52438F] bg-[#1A1829] p-5 shadow-2xl flex flex-col gap-4"
           >
             <div className="flex items-center justify-between border-b border-[#2C253E] pb-3">
-              <h3 className="text-[16px] font-bold text-white">
+              <h3 className="font-display text-[16px] font-bold text-white">
                 {editingBlockId
                   ? 'Edit Schedule Time Block'
                   : 'New Schedule Time Block'}
@@ -501,7 +508,7 @@ export const ScheduleView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsBlockModalOpen(false)}
-                className="text-[#8E87A8] hover:text-white cursor-pointer"
+                className="text-[#9490A8] hover:text-white cursor-pointer"
               >
                 ✕
               </button>
@@ -509,7 +516,7 @@ export const ScheduleView: React.FC = () => {
 
             {/* Block Title */}
             <div>
-              <label className="block text-[12px] font-medium text-[#B8B2CC]">
+              <label className="block text-[12px] font-medium text-[#C4B5FD]">
                 Block Title
               </label>
               <input
@@ -518,14 +525,14 @@ export const ScheduleView: React.FC = () => {
                 value={blockTitle}
                 onChange={(e) => setBlockTitle(e.target.value)}
                 placeholder="e.g., Morning UX Studio & Wireframing"
-                className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                className="mt-1.5 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
               />
             </div>
 
             {/* Start & End Time Pickers */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[12px] font-medium text-[#B8B2CC]">
+                <label className="block text-[12px] font-medium text-[#C4B5FD]">
                   Start Time
                 </label>
                 <input
@@ -537,7 +544,7 @@ export const ScheduleView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[12px] font-medium text-[#B8B2CC]">
+                <label className="block text-[12px] font-medium text-[#C4B5FD]">
                   End Time
                 </label>
                 <input
@@ -551,7 +558,7 @@ export const ScheduleView: React.FC = () => {
 
             {/* Active Days (Mon-Sun Pills) */}
             <div>
-              <span className="block text-[12px] font-medium text-[#B8B2CC]">
+              <span className="block text-[12px] font-medium text-[#C4B5FD]">
                 Active Days
               </span>
               <div className="mt-2 grid grid-cols-7 gap-1.5">
@@ -564,8 +571,8 @@ export const ScheduleView: React.FC = () => {
                       onClick={() => toggleBlockDay(day)}
                       className={`h-8 rounded-lg text-[11.5px] font-bold transition cursor-pointer ${
                         selected
-                          ? 'bg-[#A594F9] text-[#171329]'
-                          : 'border border-[#2A233D] bg-[#120F1D] text-[#8E87A8] hover:text-white'
+                          ? 'bg-[#A594F9] text-[#12111A]'
+                          : 'border border-[#2A233D] bg-[#120F1D] text-[#9490A8] hover:text-white'
                       }`}
                     >
                       {day}
@@ -577,7 +584,7 @@ export const ScheduleView: React.FC = () => {
 
             {/* Session Preset Selector + Dynamic "Set Custom Time" Drawer */}
             <div>
-              <span className="block text-[12px] font-medium text-[#B8B2CC]">
+              <span className="block text-[12px] font-medium text-[#C4B5FD]">
                 Session Preset
               </span>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -596,7 +603,7 @@ export const ScheduleView: React.FC = () => {
                       className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition cursor-pointer ${
                         active
                           ? 'border-[#A594F9] bg-[#261E42] text-white'
-                          : 'border-[#2A233D] bg-[#120F1D] text-[#8E87A8] hover:text-white'
+                          : 'border-[#2A233D] bg-[#120F1D] text-[#9490A8] hover:text-white'
                       }`}
                     >
                       {preset === 'Custom' && active
@@ -607,7 +614,6 @@ export const ScheduleView: React.FC = () => {
                 })}
               </div>
 
-              {/* Dynamically Revealed "Set Custom Time" Button & Stepper Drawer */}
               {blockPreset === 'Custom' && (
                 <div className="mt-2.5 flex flex-col gap-2.5">
                   <button
@@ -615,7 +621,7 @@ export const ScheduleView: React.FC = () => {
                     onClick={() =>
                       setIsCustomTimeDrawerOpen((prev) => !prev)
                     }
-                    className="flex w-full items-center justify-between rounded-xl border border-[#4E4187] bg-[#211A36] px-3.5 py-2 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#2B2246] hover:text-white transition cursor-pointer"
+                    className="flex w-full items-center justify-between rounded-xl border border-[#52438F] bg-[#211A36] px-3.5 py-2 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#2B2246] hover:text-white transition cursor-pointer"
                   >
                     <span className="flex items-center gap-2">
                       <span>⏱ Set Custom Time</span>
@@ -631,7 +637,7 @@ export const ScheduleView: React.FC = () => {
                   {isCustomTimeDrawerOpen && (
                     <div className="grid grid-cols-2 gap-3 rounded-xl border border-[#352C50] bg-[#120F1D] p-3">
                       <div className="flex flex-col justify-between">
-                        <span className="text-[11px] font-medium text-[#9E97B8]">
+                        <span className="text-[11px] font-medium text-[#9490A8]">
                           Study Duration
                         </span>
                         <div className="mt-2 flex items-center justify-between">
@@ -662,7 +668,7 @@ export const ScheduleView: React.FC = () => {
                       </div>
 
                       <div className="flex flex-col justify-between">
-                        <span className="text-[11px] font-medium text-[#9E97B8]">
+                        <span className="text-[11px] font-medium text-[#9490A8]">
                           Break Duration
                         </span>
                         <div className="mt-2 flex items-center justify-between">
@@ -695,13 +701,13 @@ export const ScheduleView: React.FC = () => {
               )}
             </div>
 
-            {/* Modal Footer Controls */}
+            {/* Modal Footer Controls with WCAG AA Compliant "Delete Block" Button */}
             <div className="mt-2 flex items-center justify-between pt-2 border-t border-[#262038]">
               {editingBlockId ? (
                 <button
                   type="button"
-                  onClick={() => handleDeleteBlock(editingBlockId)}
-                  className="rounded-xl border border-rose-500/40 bg-rose-500/15 px-3.5 py-2 text-[12px] font-semibold text-rose-200 hover:bg-rose-500/30 transition cursor-pointer"
+                  onClick={() => setPendingDeleteBlockId(editingBlockId)}
+                  className="rounded-xl bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50 dark:hover:bg-rose-900/40 px-3.5 py-2 text-[12px] font-semibold transition cursor-pointer"
                 >
                   Delete Block
                 </button>
@@ -713,13 +719,13 @@ export const ScheduleView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsBlockModalOpen(false)}
-                  className="rounded-xl border border-[#383052] bg-[#120F1D] px-4 py-2 text-[12.5px] font-semibold text-[#B8B2CC] hover:text-white cursor-pointer"
+                  className="rounded-xl border border-[#383052] bg-[#120F1D] px-4 py-2 text-[12.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] hover:bg-[#B5A7FA] cursor-pointer"
+                  className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#12111A] hover:bg-[#B8A9FA] cursor-pointer"
                 >
                   {editingBlockId ? 'Save Changes' : 'Create Block'}
                 </button>
@@ -728,6 +734,20 @@ export const ScheduleView: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Confirmation Modal for Deleting a Schedule Block */}
+      <ConfirmModal
+        isOpen={pendingDeleteBlockId !== null}
+        title="Delete Schedule Time Block?"
+        description="This scheduled study block will be permanently removed from your weekly calendar."
+        confirmLabel="Delete Block"
+        onConfirm={() => {
+          if (pendingDeleteBlockId) {
+            handleDeleteBlockConfirmed(pendingDeleteBlockId);
+          }
+        }}
+        onCancel={() => setPendingDeleteBlockId(null)}
+      />
     </div>
   );
 };

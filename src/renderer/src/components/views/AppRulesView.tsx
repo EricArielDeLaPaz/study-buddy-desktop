@@ -66,7 +66,6 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
   };
 
   const handleTestSingleAppNudge = (rule: AppRuleItem) => {
-    // Strip parenthetical tag notes for clean speech bubble display if present
     const cleanTarget =
       rule.targetName.replace(/\s*\(.*?\)\s*/g, '').trim() || rule.targetName;
     triggerOverlay('overlay_intervention', {
@@ -76,18 +75,18 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-5 p-6 text-white">
+    <div className="flex flex-col gap-5 p-6 text-white font-sans">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[22px] font-bold tracking-tight text-white">
+          <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
             App & Website Intervention Rules
           </h2>
-          <p className="mt-1 text-[13px] text-[#9E97B8]">
+          <p className="mt-1 text-[13px] text-[#9490A8]">
             Configure which single apps or websites trigger Mambo&apos;s intervention overlay during active focus.
           </p>
         </div>
 
-        <span className="rounded-full bg-[#261E42] border border-[#4E4187] px-3.5 py-1 text-[12px] font-semibold text-[#A594F9]">
+        <span className="rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200/80 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/40 px-3.5 py-1 text-[12px] font-semibold">
           Blocking {rules.filter((r) => r.enabled).length} targets
         </span>
       </div>
@@ -97,15 +96,14 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
         onSubmit={handleCreateRule}
         className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-[#2C253E] bg-[#181424] p-4"
       >
-        {/* Toggle between Website and Desktop App */}
         <div className="flex rounded-xl bg-[#110E1A] p-1 border border-[#2C253E]">
           <button
             type="button"
             onClick={() => setTargetKind('website')}
             className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
               targetKind === 'website'
-                ? 'bg-[#A594F9] text-[#171329]'
-                : 'text-[#9E97B8] hover:text-white'
+                ? 'bg-[#A594F9] text-[#12111A]'
+                : 'text-[#9490A8] hover:text-white'
             }`}
           >
             Website
@@ -115,15 +113,14 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
             onClick={() => setTargetKind('app')}
             className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
               targetKind === 'app'
-                ? 'bg-[#A594F9] text-[#171329]'
-                : 'text-[#9E97B8] hover:text-white'
+                ? 'bg-[#A594F9] text-[#12111A]'
+                : 'text-[#9490A8] hover:text-white'
             }`}
           >
             Desktop App
           </button>
         </div>
 
-        {/* Custom Tag Name Input */}
         <input
           type="text"
           value={customTagName}
@@ -133,10 +130,9 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
               ? 'Custom Tag Name (e.g., Instagram)'
               : 'Custom Tag Name (e.g., Steam (Gaming))'
           }
-          className="flex-1 min-w-[200px] rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+          className="flex-1 min-w-[200px] rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
         />
 
-        {/* Domain URL or Process Executable Input */}
         <div className="flex flex-1 min-w-[220px] items-center gap-1.5">
           <input
             type="text"
@@ -147,7 +143,7 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
                 ? 'Domain URL (e.g., instagram.com)'
                 : 'Process / executable (e.g., steam.exe)'
             }
-            className="w-full rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+            className="w-full rounded-xl border border-[#342C4C] bg-[#0E0B16] px-3.5 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
           />
 
           {targetKind === 'app' && (
@@ -172,7 +168,7 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
 
         <button
           type="submit"
-          className="rounded-xl bg-[#A594F9] px-4 py-2 text-[13px] font-bold text-[#171329] hover:bg-[#B5A7FA] transition cursor-pointer shadow-sm"
+          className="rounded-xl bg-[#A594F9] px-4 py-2 text-[13px] font-bold text-[#12111A] hover:bg-[#B8A9FA] transition cursor-pointer shadow-sm"
         >
           Add Target
         </button>
@@ -198,36 +194,40 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
               }`}
             >
               <div className="flex items-center gap-3.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#261E42] text-[15px] font-bold text-[#A594F9]">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 text-indigo-900 border border-indigo-200/80 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/40 text-[15px] font-bold">
                   {isApp ? '💻' : '🌐'}
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[14px] font-bold text-white">
                       {rule.targetName}
                     </span>
-                    <span className="rounded-md bg-[#231D35] px-2 py-0.5 text-[10.5px] font-medium text-[#9E97B8]">
+
+                    {/* Process / Domain Chip (WCAG AA Compliant in Light & Dark Mode) */}
+                    <span className="rounded-md bg-indigo-100 text-indigo-900 border border-indigo-200/80 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/40 px-2 py-0.5 text-[10.5px] font-medium">
                       {rule.domainOrProcess}
                     </span>
-                    <span className="rounded-full bg-[#1C172B] px-2 py-0.5 text-[10px] font-semibold text-[#A594F9]">
+
+                    {/* Website / Desktop App Type Chip (WCAG AA Compliant in Light & Dark Mode) */}
+                    <span className="rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200/80 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/40 px-2.5 py-0.5 text-[10px] font-medium">
                       {isApp ? 'Desktop App' : 'Website'}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-[11.5px] text-[#8E87A8]">
+                  <p className="mt-0.5 text-[11.5px] text-[#9490A8]">
                     Overlay prompt: &ldquo;No! Don&apos;t go on {cleanPromptName}&rdquo;
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
-                {/* Strict Mode Pill Toggle */}
+                {/* Strict (Close only) vs Default (Strict off) Tag (WCAG AA > 7:1 in Light Mode) */}
                 <button
                   type="button"
                   onClick={() => onToggleRuleStrict(rule.id)}
-                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
                     rule.strictBlock
-                      ? 'border-rose-500/50 bg-rose-500/20 text-rose-200'
-                      : 'border-[#383052] bg-[#1D182D] text-[#9E97B8] hover:text-white'
+                      ? 'text-rose-900 bg-rose-100 border border-rose-200 dark:text-rose-300 dark:bg-rose-950/60 dark:border-rose-800/40'
+                      : 'text-zinc-800 bg-zinc-200 border border-zinc-300 dark:text-zinc-300 dark:bg-zinc-800 dark:border-zinc-700'
                   }`}
                 >
                   {rule.strictBlock
@@ -239,7 +239,7 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleTestSingleAppNudge(rule)}
-                  className="rounded-lg border border-[#4E4187] bg-[#261E42] px-3 py-1 text-[11.5px] font-semibold text-[#DDD8F3] hover:bg-[#35295B] transition cursor-pointer"
+                  className="rounded-lg border border-indigo-300 bg-indigo-100 text-indigo-900 hover:bg-indigo-200 dark:border-[#4E4187] dark:bg-[#261E42] dark:text-[#DDD8F3] dark:hover:bg-[#35295B] px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer"
                 >
                   Test &ldquo;{cleanPromptName}&rdquo;
                 </button>

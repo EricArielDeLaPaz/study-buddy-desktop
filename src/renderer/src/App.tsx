@@ -1,5 +1,5 @@
 // src/renderer/src/App.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AppProvider,
   useApp,
@@ -19,7 +19,7 @@ import { BuddyStudioView } from './components/views/BuddyStudioView';
 import { MarketplaceView } from './components/views/MarketplaceView';
 import { SettingsView } from './components/views/SettingsView';
 import { CenterOverlay } from './components/overlays/CenterOverlay';
-import { Scratchpad } from './components/scratchpad/Scratchpad';
+import { Scratchpad, WindowRect } from './components/scratchpad/Scratchpad';
 import { FloatingMascotDock } from './components/companion/FloatingMascotDock';
 import { OverlayKind } from './types/buddy';
 import type {
@@ -86,6 +86,122 @@ const INITIAL_APP_RULES: AppRuleItem[] = [
   },
 ];
 
+const VIEWPORT_PADDING = 12;
+const COLLISION_GAP = 12;
+
+function clampRectToViewport(rect: WindowRect): WindowRect {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+  const width = Math.min(rect.width, vw - VIEWPORT_PADDING * 2);
+  const height = Math.min(rect.height, vh - VIEWPORT_PADDING * 2);
+  const x = Math.max(
+    VIEWPORT_PADDING,
+    Math.min(vw - width - VIEWPORT_PADDING, rect.x)
+  );
+  const y = Math.max(
+    VIEWPORT_PADDING,
+    Math.min(vh - height - VIEWPORT_PADDING, rect.y)
+  );
+  return { x, y, width, height };
+}
+
+function rectsOverlap(a: WindowRect, b: WindowRect, gap = COLLISION_GAP): boolean {
+  return (
+    a.x < b.x + b.width + gap &&
+    a.x + a.width + gap > b.x &&
+    a.y < b.y + b.height + gap &&
+    a.y + a.height + gap > b.y
+  );
+}
+
+/**
+ * Resolves a collision when `moving` is dragged or resized against `obstacle`,
+ * clamping `moving` along the axis of minimum penetration so it never enters `obstacle`.
+ */
+function clampMovingRectAgainstObstacle(
+  moving: WindowRect,
+  obstacle: WindowRect,
+  interaction: 'drag' | 'resize'
+): WindowRect {
+  const clamped = clampRectToViewport(moving);
+  if (!rectsOverlap(clamped, obstacle)) {
+    return clamped;
+  }
+
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+
+  // Calculate penetration depths in all 4 cardinal directions
+  const pushLeftX = obstacle.x - COLLISION_GAP - clamped.width;
+  const pushRightX = obstacle.x + obstacle.width + COLLISION_GAP;
+  const pushUpY = obstacle.y - COLLISION_GAP - clamped.height;
+  const pushDownY = obstacle.y + obstacle.height + COLLISION_GAP;
+
+  if (interaction === 'resize') {
+    const updated = { ...clamped };
+    if (
+      clamped.x < obstacle.x &&
+      clamped.x + clamped.width + COLLISION_GAP > obstacle.x
+    ) {
+      updated.width = Math.max(340, obstacle.x - COLLISION_GAP - clamped.x);
+    }
+    if (
+      clamped.y < obstacle.y &&
+      clamped.y + clamped.height + COLLISION_GAP > obstacle.y
+    ) {
+      updated.height = Math.max(360, obstacle.y - COLLISION_GAP - clamped.y);
+    }
+    return clampRectToViewport(updated);
+  }
+
+  const candidates: Array<{ dist: number; rect: WindowRect }> = [];
+
+  if (pushLeftX >= VIEWPORT_PADDING) {
+    candidates.push({
+      dist: Math.abs(clamped.x - pushLeftX),
+      rect: { ...clamped, x: pushLeftX },
+    });
+  }
+  if (pushRightX + clamped.width <= vw - VIEWPORT_PADDING) {
+    candidates.push({
+      dist: Math.abs(clamped.x - pushRightX),
+      rect: { ...clamped, x: pushRightX },
+    });
+  }
+  if (pushUpY >= VIEWPORT_PADDING) {
+    candidates.push({
+      dist: Math.abs(clamped.y - pushUpY),
+      rect: { ...clamped, y: pushUpY },
+    });
+  }
+  if (pushDownY + clamped.height <= vh - VIEWPORT_PADDING) {
+    candidates.push({
+      dist: Math.abs(clamped.y - pushDownY),
+      rect: { ...clamped, y: pushDownY },
+    });
+  }
+
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => a.dist - b.dist);
+    return clampRectToViewport(candidates[0].rect);
+  }
+
+  // Fallback hard horizontal clamp: desktopRect.x + desktopRect.width <= notepadRect.x
+  if (clamped.x <= obstacle.x) {
+    return clampRectToViewport({
+      ...clamped,
+      x: Math.max(VIEWPORT_PADDING, obstacle.x - COLLISION_GAP - clamped.width),
+    });
+  }
+  return clampRectToViewport({
+    ...clamped,
+    x: Math.min(
+      vw - clamped.width - VIEWPORT_PADDING,
+      obstacle.x + obstacle.width + COLLISION_GAP
+    ),
+  });
+}
+
 const StudyBuddyViewport: React.FC = () => {
   const {
     activeOverlay,
@@ -93,15 +209,53 @@ const StudyBuddyViewport: React.FC = () => {
     dismissActiveOverlay,
     isScratchpadOpen,
     setScratchpadOpen,
+    isScratchpadMinimized,
     setInteractiveRegionHovered,
     syncWindowClickThrough,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<NavTabId>('session');
-  // Strict mutual exclusivity: true = Full Desktop App Window, false = Floating Mambo Companion Dock
   const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
   const [appRules, setAppRules] = useState<AppRuleItem[]>(INITIAL_APP_RULES);
+
+  // Track Desktop App Window Rect & Notepad Window Rect for Mutual Collision Bounding
+  const [desktopRect, setDesktopRect] = useState<WindowRect>(() => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const width = Math.min(960, Math.max(760, vw - 440));
+    const height = Math.min(680, Math.max(600, vh - 80));
+    return {
+      x: VIEWPORT_PADDING,
+      y: Math.max(VIEWPORT_PADDING, Math.round((vh - height) / 2)),
+      width,
+      height,
+    };
+  });
+
+  const [notepadRect, setNotepadRect] = useState<WindowRect>(() => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const width = 390;
+    const height = 560;
+    return {
+      x: Math.max(VIEWPORT_PADDING, vw - width - VIEWPORT_PADDING),
+      y: Math.max(VIEWPORT_PADDING, Math.round((vh - height) / 2)),
+      width,
+      height,
+    };
+  });
+
+  const desktopRectRef = useRef<WindowRect>(desktopRect);
+  desktopRectRef.current = desktopRect;
+
+  const notepadRectRef = useRef<WindowRect>(notepadRect);
+  notepadRectRef.current = notepadRect;
+
+  const desktopDragOffsetRef = useRef<{
+    startX: number;
+    startY: number;
+  } | null>(null);
 
   const handleInteractiveRegionHover = useCallback(
     (regionId: string, isHovered: boolean) => {
@@ -110,6 +264,200 @@ const StudyBuddyViewport: React.FC = () => {
     },
     [setInteractiveRegionHovered, syncWindowClickThrough]
   );
+
+  // Ensure non-overlapping layout whenever Notepad is opened alongside Desktop Window
+  useEffect(() => {
+    if (!isDashboardVisible || !isScratchpadOpen) return;
+    const currentDesktop = desktopRectRef.current;
+    const currentNotepad = {
+      ...notepadRectRef.current,
+      height: isScratchpadMinimized ? 60 : notepadRectRef.current.height,
+    };
+
+    if (rectsOverlap(currentDesktop, currentNotepad)) {
+      const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+      const availableDesktopWidth = Math.max(
+        680,
+        vw - currentNotepad.width - VIEWPORT_PADDING * 2 - COLLISION_GAP
+      );
+      const nextDesktop: WindowRect = clampRectToViewport({
+        ...currentDesktop,
+        x: VIEWPORT_PADDING,
+        width: Math.min(currentDesktop.width, availableDesktopWidth),
+      });
+      const nextNotepad: WindowRect = clampRectToViewport({
+        ...notepadRectRef.current,
+        x: nextDesktop.x + nextDesktop.width + COLLISION_GAP,
+      });
+      setDesktopRect(nextDesktop);
+      setNotepadRect(nextNotepad);
+    }
+  }, [isDashboardVisible, isScratchpadOpen, isScratchpadMinimized]);
+
+  // Listen for custom navigation events (e.g., from MarketplaceView)
+  useEffect(() => {
+    const handleNavigateEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<NavTabId>;
+      if (customEvent.detail) {
+        setActiveTab(customEvent.detail);
+      }
+    };
+    window.addEventListener('study-buddy:navigate-tab', handleNavigateEvent);
+    return () =>
+      window.removeEventListener(
+        'study-buddy:navigate-tab',
+        handleNavigateEvent
+      );
+  }, []);
+
+  /**
+   * Updates `desktopRect` during drag or resize while preventing collision with `notepadRect`.
+   */
+  const updateDesktopRectWithCollision = useCallback(
+    (candidate: WindowRect, interaction: 'drag' | 'resize') => {
+      const clampedCandidate = clampRectToViewport(candidate);
+      if (!isScratchpadOpen) {
+        setDesktopRect(clampedCandidate);
+        return;
+      }
+
+      const effectiveNotepad: WindowRect = {
+        ...notepadRectRef.current,
+        height: isScratchpadMinimized ? 60 : notepadRectRef.current.height,
+      };
+
+      if (!rectsOverlap(clampedCandidate, effectiveNotepad)) {
+        setDesktopRect(clampedCandidate);
+        return;
+      }
+
+      // Clamp Desktop Window so it never overlaps the Notepad
+      const resolvedDesktop = clampMovingRectAgainstObstacle(
+        clampedCandidate,
+        effectiveNotepad,
+        interaction
+      );
+      setDesktopRect(resolvedDesktop);
+    },
+    [isScratchpadOpen, isScratchpadMinimized]
+  );
+
+  /**
+   * Updates `notepadRect` during drag or resize while preventing penetration into `desktopRect`.
+   */
+  const updateNotepadRectWithCollision = useCallback(
+    (candidate: WindowRect, interaction: 'drag' | 'resize') => {
+      const clampedCandidate = clampRectToViewport(candidate);
+      if (!isDashboardVisible) {
+        setNotepadRect(clampedCandidate);
+        return;
+      }
+
+      const effectiveCandidate: WindowRect = {
+        ...clampedCandidate,
+        height: isScratchpadMinimized ? 60 : clampedCandidate.height,
+      };
+
+      if (!rectsOverlap(effectiveCandidate, desktopRectRef.current)) {
+        setNotepadRect(clampedCandidate);
+        return;
+      }
+
+      const resolvedEffective = clampMovingRectAgainstObstacle(
+        effectiveCandidate,
+        desktopRectRef.current,
+        interaction
+      );
+
+      setNotepadRect({
+        ...clampedCandidate,
+        x: resolvedEffective.x,
+        y: resolvedEffective.y,
+        width: resolvedEffective.width,
+        height: isScratchpadMinimized
+          ? clampedCandidate.height
+          : resolvedEffective.height,
+      });
+    },
+    [isDashboardVisible, isScratchpadMinimized]
+  );
+
+  // Desktop App Header Dragging within the Workspace
+  const handleDesktopHeaderMouseDown = (
+    e: React.MouseEvent<HTMLDivElement>
+  ) => {
+    if ((e.target as HTMLElement).closest('button, input, select, a, [data-no-drag="true"]')) {
+      return;
+    }
+
+    const startRect = desktopRectRef.current;
+    desktopDragOffsetRef.current = {
+      startX: e.clientX - startRect.x,
+      startY: e.clientY - startRect.y,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!desktopDragOffsetRef.current) return;
+      const current = desktopRectRef.current;
+      updateDesktopRectWithCollision(
+        {
+          ...current,
+          x: moveEvent.clientX - desktopDragOffsetRef.current.startX,
+          y: moveEvent.clientY - desktopDragOffsetRef.current.startY,
+        },
+        'drag'
+      );
+    };
+
+    const handleMouseUp = () => {
+      desktopDragOffsetRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Desktop App Edge / Corner Resizing with Collision Bounding
+  const handleStartDesktopResize = (
+    e: React.MouseEvent,
+    direction: 'right' | 'bottom' | 'corner'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startRect = desktopRectRef.current;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      updateDesktopRectWithCollision(
+        {
+          ...startRect,
+          width:
+            direction === 'right' || direction === 'corner'
+              ? Math.max(680, Math.min(1260, startRect.width + deltaX))
+              : startRect.width,
+          height:
+            direction === 'bottom' || direction === 'corner'
+              ? Math.max(540, Math.min(860, startRect.height + deltaY))
+              : startRect.height,
+        },
+        'resize'
+      );
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   const activateOverlayImmediately = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
@@ -204,48 +552,82 @@ const StudyBuddyViewport: React.FC = () => {
 
   return (
     <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
-      {/* 1. EXCLUSIVE MODE A: Full Multi-Tab Study Buddy Desktop Window */}
+      {/* 1. EXCLUSIVE MODE A: Draggable & Resizable Study Buddy Desktop Window */}
       {isDashboardVisible && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center p-6 pointer-events-none">
-          <div
-            onMouseEnter={() =>
-              handleInteractiveRegionHover('main-dashboard-shell', true)
-            }
-            onMouseLeave={() =>
-              handleInteractiveRegionHover('main-dashboard-shell', false)
-            }
-            className="pointer-events-auto flex h-[690px] w-[1060px] max-w-full max-h-full flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
-          >
-            {/* Global Window Header with "Open Notepad" / "Close Notepad" */}
+        <div
+          onMouseEnter={() =>
+            handleInteractiveRegionHover('main-dashboard-shell', true)
+          }
+          onMouseLeave={() =>
+            handleInteractiveRegionHover('main-dashboard-shell', false)
+          }
+          style={{
+            left: `${desktopRect.x}px`,
+            top: `${desktopRect.y}px`,
+            width: `${desktopRect.width}px`,
+            height: `${desktopRect.height}px`,
+          }}
+          className="fixed z-30 pointer-events-auto flex flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
+        >
+          {/* Draggable Global Window Header */}
+          <div onMouseDown={handleDesktopHeaderMouseDown} className="cursor-move">
             <Header
               isScratchpadOpen={isScratchpadOpen}
               onToggleScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
               onMinimizeToCompanion={() => setIsDashboardVisible(false)}
               activeTabLabel={TAB_LABELS[activeTab]}
             />
+          </div>
 
-            {/* Clean Sidebar + Active View Body */}
-            <div className="flex flex-1 min-h-0 overflow-hidden">
-              <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
+          {/* Sidebar + Active View Body */}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
-              <main className="flex-1 overflow-y-auto bg-[#141020]">
-                {activeTab === 'session' && <SessionView />}
-                {activeTab === 'reminders' && <RemindersView />}
-                {activeTab === 'schedule' && <ScheduleView />}
-                {activeTab === 'app_rules' && (
-                  <AppRulesView
-                    rules={appRules}
-                    onToggleRuleEnabled={handleToggleRuleEnabled}
-                    onToggleRuleStrict={handleToggleRuleStrict}
-                    onAddRule={handleAddRule}
-                  />
-                )}
-                {activeTab === 'progress' && <ProgressView />}
-                {activeTab === 'buddy' && <BuddyStudioView />}
-                {activeTab === 'marketplace' && <MarketplaceView />}
-                {activeTab === 'settings' && <SettingsView />}
-              </main>
-            </div>
+            <main className="flex-1 overflow-y-auto bg-[#141020]">
+              {activeTab === 'session' && <SessionView />}
+              {activeTab === 'reminders' && <RemindersView />}
+              {activeTab === 'schedule' && <ScheduleView />}
+              {activeTab === 'app_rules' && (
+                <AppRulesView
+                  rules={appRules}
+                  onToggleRuleEnabled={handleToggleRuleEnabled}
+                  onToggleRuleStrict={handleToggleRuleStrict}
+                  onAddRule={handleAddRule}
+                />
+              )}
+              {activeTab === 'progress' && <ProgressView />}
+              {activeTab === 'buddy' && <BuddyStudioView />}
+              {activeTab === 'marketplace' && (
+                <MarketplaceView
+                  onNavigateToBuddy={() => setActiveTab('buddy')}
+                />
+              )}
+              {activeTab === 'settings' && <SettingsView />}
+            </main>
+          </div>
+
+          {/* Desktop Window Resize Handles (Right, Bottom, Bottom-Right Corner) */}
+          <div
+            onMouseDown={(e) => handleStartDesktopResize(e, 'right')}
+            className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
+          />
+          <div
+            onMouseDown={(e) => handleStartDesktopResize(e, 'bottom')}
+            className="absolute bottom-0 left-4 right-4 h-1.5 cursor-ns-resize"
+          />
+          <div
+            onMouseDown={(e) => handleStartDesktopResize(e, 'corner')}
+            title="Drag to resize Study Buddy window"
+            className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#9490A8] hover:text-[#A594F9]"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path
+                d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
           </div>
         </div>
       )}
@@ -268,7 +650,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Floating Resizable & Drag-and-Drop Notepad */}
+      {/* 3. Floating Resizable & Collision-Bounded Notepad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -278,7 +660,10 @@ const StudyBuddyViewport: React.FC = () => {
           handleInteractiveRegionHover('scratchpad-shell', false)
         }
       >
-        <Scratchpad />
+        <Scratchpad
+          rect={notepadRect}
+          onRectChange={updateNotepadRectWithCollision}
+        />
       </div>
 
       {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
