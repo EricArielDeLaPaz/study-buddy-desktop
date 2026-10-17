@@ -1,5 +1,5 @@
 // src/renderer/src/components/views/RemindersView.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   ActiveCompanionSelection,
@@ -76,7 +76,6 @@ export const RemindersView: React.FC = () => {
     DEFAULT_REMINDERS_ROSTER
   );
 
-  // Dynamically read the active buddy and its defined animation slots
   const [activeBuddy, setActiveBuddy] = useState<ActiveCompanionSelection>(
     loadActiveCompanionSelection
   );
@@ -97,7 +96,6 @@ export const RemindersView: React.FC = () => {
     };
   }, []);
 
-  // Strictly scope available slots based on whether active buddy is Custom vs Progression/Marketplace
   const availableBuddySlots =
     activeBuddy.slots && activeBuddy.slots.length > 0
       ? activeBuddy.slots
@@ -130,7 +128,25 @@ export const RemindersView: React.FC = () => {
     () => availableBuddySlots[0]?.id ?? 'slot-water-break'
   );
 
-  // Keep selected slot valid if active buddy changes
+  // Custom Figma Dropdown State
+  const [isSlotDropdownOpen, setIsSlotDropdownOpen] = useState<boolean>(false);
+  const slotDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e: MouseEvent) {
+      if (
+        slotDropdownRef.current &&
+        !slotDropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsSlotDropdownOpen(false);
+      }
+    }
+    if (isSlotDropdownOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isSlotDropdownOpen]);
+
   useEffect(() => {
     if (!availableBuddySlots.some((s) => s.id === formSlotId)) {
       setFormSlotId(availableBuddySlots[0]?.id ?? '');
@@ -231,6 +247,10 @@ export const RemindersView: React.FC = () => {
     );
   };
 
+  const selectedSlotObj =
+    availableBuddySlots.find((s) => s.id === formSlotId) ??
+    availableBuddySlots[0];
+
   return (
     <div className="flex flex-col gap-5 p-6 text-white font-sans">
       {/* Header */}
@@ -240,19 +260,14 @@ export const RemindersView: React.FC = () => {
             Wellness & Study Reminders
           </h2>
           <p className="mt-1 text-[13px] text-[#9E97B8]">
-            Bind reminders directly to{' '}
-            <span className="font-semibold text-[#C4B5FD]">
-              {activeBuddy.name}
-            </span>{' '}
-            ({activeBuddy.kind === 'Custom' ? 'Custom Buddy' : 'Pre-packaged'}{' '}
-            animation slots).
+            Configure low-friction reminders and bind them to Mambo&apos;s animations.
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleStartNewReminder}
-          className="rounded-xl border border-[#4E4187] bg-[#261E42] px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-[#342959] transition cursor-pointer"
+          className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-[#3C3173] transition cursor-pointer"
         >
           + New Reminder
         </button>
@@ -270,8 +285,8 @@ export const RemindersView: React.FC = () => {
                 onClick={() => handleEditReminderClick(item)}
                 className={`flex items-center justify-between rounded-2xl border p-4 transition cursor-pointer ${
                   isBeingEdited
-                    ? 'border-[#A594F9] bg-[#261E42] shadow-[0_8px_24px_rgba(165,148,249,0.16)]'
-                    : 'border-[#2C253E] bg-[#181424] hover:border-[#4E4187]'
+                    ? 'border-[#A594F9] bg-[#2A244D] shadow-[0_8px_24px_rgba(165,148,249,0.16)]'
+                    : 'border-[#2C253E] bg-[#181424] hover:border-[#52438F]'
                 }`}
               >
                 <div className="flex items-center gap-3.5 min-w-0">
@@ -286,7 +301,7 @@ export const RemindersView: React.FC = () => {
                       <span className="rounded-full bg-[#141020] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
                         Every {item.frequencyMinutes}m · {item.durationMinutes}m
                       </span>
-                      <span className="rounded-md bg-[#141020] border border-[#4E4187] px-2 py-0.5 text-[10px] font-semibold text-[#C4B5FD] truncate">
+                      <span className="rounded-md bg-[#141020] border border-[#52438F] px-2 py-0.5 text-[10px] font-semibold text-[#C4B5FD] truncate">
                         🎬 {item.boundSlotLabel}
                       </span>
                     </div>
@@ -303,7 +318,7 @@ export const RemindersView: React.FC = () => {
                       e.stopPropagation();
                       handleTriggerBoundReminder(item);
                     }}
-                    className="rounded-lg border border-[#4E4187] bg-[#1F1A30] px-2.5 py-1.5 text-[11px] font-medium text-[#DDD8F3] hover:bg-[#2C2545] transition cursor-pointer"
+                    className="rounded-lg border border-[#52438F] bg-[#1F1A30] px-2.5 py-1.5 text-[11px] font-medium text-[#DDD8F3] hover:bg-[#2C2545] transition cursor-pointer"
                   >
                     Preview
                   </button>
@@ -319,7 +334,7 @@ export const RemindersView: React.FC = () => {
                     aria-label={`Edit ${item.name}`}
                     className={`flex h-9 w-9 items-center justify-center rounded-xl border transition cursor-pointer ${
                       isBeingEdited
-                        ? 'border-[#A594F9] bg-[#A594F9] text-[#171329]'
+                        ? 'border-[#A594F9] bg-[#A594F9] text-[#141324]'
                         : 'border-[#383052] bg-[#1F1A30] text-[#C4B5FD] hover:bg-[#2D2546] hover:text-white'
                     }`}
                   >
@@ -343,16 +358,16 @@ export const RemindersView: React.FC = () => {
           })}
         </div>
 
-        {/* Right Column: Editable Reminder Form with Dynamic Active Buddy Animation Slot Picker */}
+        {/* Right Column: Editable Reminder Form (Clean Unified Animation Slot Dropdown) */}
         <form
           onSubmit={handleSubmitForm}
-          className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#4E4187] bg-[#181424] p-5"
+          className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#52438F] bg-[#181424] p-5"
         >
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
             <h3 className="text-[15px] font-bold text-white">
               {editingReminderId ? 'Edit reminder' : 'New reminder'}
             </h3>
-            <span className="rounded-full bg-[#261E42] px-2.5 py-0.5 text-[11px] font-semibold text-[#A594F9]">
+            <span className="rounded-full bg-[#2A244D] px-2.5 py-0.5 text-[11px] font-semibold text-[#C4B5FD]">
               {editingReminderId ? 'Editing selected' : 'Create mode'}
             </span>
           </div>
@@ -381,7 +396,7 @@ export const RemindersView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setFormFrequency((f) => Math.max(5, f - 5))}
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#2A244D] text-white hover:bg-[#3C3173] cursor-pointer"
                 >
                   −
                 </button>
@@ -393,7 +408,7 @@ export const RemindersView: React.FC = () => {
                   onClick={() =>
                     setFormFrequency((f) => Math.min(240, f + 5))
                   }
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#2A244D] text-white hover:bg-[#3C3173] cursor-pointer"
                 >
                   +
                 </button>
@@ -408,7 +423,7 @@ export const RemindersView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setFormDuration((d) => Math.max(1, d - 1))}
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#2A244D] text-white hover:bg-[#3C3173] cursor-pointer"
                 >
                   −
                 </button>
@@ -418,7 +433,7 @@ export const RemindersView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setFormDuration((d) => Math.min(60, d + 1))}
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#241E36] text-white hover:bg-[#352C50] cursor-pointer"
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-[#2A244D] text-white hover:bg-[#3C3173] cursor-pointer"
                 >
                   +
                 </button>
@@ -426,33 +441,55 @@ export const RemindersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Dynamic Active Buddy Animation Slot Picker */}
-          <div className="rounded-xl border border-[#4E4187] bg-[#120F1D] p-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[12px] font-semibold text-[#E2DFF0]">
-                Animation Slot ({activeBuddy.name})
-              </label>
-              <span className="rounded-full bg-[#261E42] px-2 py-0.5 text-[10px] font-bold text-[#A594F9]">
-                {activeBuddy.kind === 'Custom'
-                  ? 'Custom Uploaded Slots'
-                  : 'Pre-packaged Slots'}
-              </span>
-            </div>
-
-            <select
-              value={formSlotId}
-              onChange={(e) => setFormSlotId(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3 py-2 text-[12px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
+          {/* Clean Unified Animation Slot Dropdown (Badge & Helper Text Removed) */}
+          <div className="relative" ref={slotDropdownRef}>
+            <label className="block text-[12px] font-medium text-[#B8B2CC]">
+              Animation Slot
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsSlotDropdownOpen((prev) => !prev)}
+              className="mt-1.5 flex w-full items-center justify-between rounded-xl border border-[#322A4B] bg-[#0E0B16] px-3.5 py-2.5 text-left text-[12.5px] font-semibold text-white hover:border-[#7C3AED] transition cursor-pointer"
             >
-              {availableBuddySlots.map((slot) => (
-                <option key={slot.id} value={slot.id}>
-                  {slot.label} ({slot.slotKey})
-                  {slot.uploadedAnimation?.fileName
-                    ? ` · ${slot.uploadedAnimation.fileName}`
-                    : ''}
-                </option>
-              ))}
-            </select>
+              <span className="truncate">
+                {selectedSlotObj
+                  ? `${selectedSlotObj.label} (${selectedSlotObj.slotKey})`
+                  : 'Select animation slot'}
+              </span>
+              <span className="ml-2 text-[11px] text-[#9E97B8]">
+                {isSlotDropdownOpen ? '▴' : '▾'}
+              </span>
+            </button>
+
+            {isSlotDropdownOpen && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1.5 rounded-xl border border-[#52438F] bg-[#232136] p-1.5 shadow-xl">
+                {availableBuddySlots.map((slot) => {
+                  const isSelected = slot.id === formSlotId;
+                  return (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      onClick={() => {
+                        setFormSlotId(slot.id);
+                        setIsSlotDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[12px] transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#2A244D] text-[#C4B5FD] font-semibold'
+                          : 'text-[#E2DFF0] hover:bg-[#2A244D]/60 hover:text-white'
+                      }`}
+                    >
+                      <span className="truncate">
+                        {slot.label} ({slot.slotKey})
+                      </span>
+                      {isSelected && (
+                        <span className="text-[11px] text-[#A594F9]">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Active Days Picker (M T W T F S S) */}
@@ -470,7 +507,7 @@ export const RemindersView: React.FC = () => {
                     onClick={() => toggleDaySelection(idx)}
                     className={`h-8 rounded-lg text-[12px] font-bold transition cursor-pointer ${
                       isSelected
-                        ? 'bg-[#A594F9] text-[#171329]'
+                        ? 'bg-[#A594F9] text-[#141324]'
                         : 'bg-[#120F1D] border border-[#2A233D] text-[#8E87A8] hover:text-white'
                     }`}
                   >
@@ -508,7 +545,7 @@ export const RemindersView: React.FC = () => {
                   onClick={() => setFormIcon(icon)}
                   className={`flex h-8 w-8 items-center justify-center rounded-lg text-[15px] transition cursor-pointer ${
                     formIcon === icon
-                      ? 'bg-[#3C3173] border border-[#A594F9]'
+                      ? 'bg-[#2A244D] border border-[#A594F9]'
                       : 'bg-[#120F1D] border border-[#2A233D] hover:bg-[#211B34]'
                   }`}
                 >
@@ -520,7 +557,7 @@ export const RemindersView: React.FC = () => {
 
           <button
             type="submit"
-            className="mt-auto w-full rounded-xl bg-[#A594F9] py-2.5 text-[13px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] transition cursor-pointer"
+            className="mt-auto w-full rounded-xl bg-[#A594F9] py-2.5 text-[13px] font-bold text-[#141324] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer"
           >
             {editingReminderId ? 'Update Reminder' : 'Save New Reminder'}
           </button>

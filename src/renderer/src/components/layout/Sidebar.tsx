@@ -187,25 +187,25 @@ const NAV_ITEMS: ReadonlyArray<NavItemConfig> = [
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab }) => {
   return (
-    <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-[#262038] bg-[#120F1D] select-none">
+    <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-[#2C253E] bg-[#120F1D] select-none font-sans">
       {/* Top Brand Header */}
       <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#3C3173] border border-[#5B4B9A] text-white font-bold shadow-inner">
+        <div className="font-display flex h-9 w-9 items-center justify-center rounded-xl bg-[#2A244D] border border-[#7C3AED] text-white font-bold shadow-inner">
           M
         </div>
         <div>
-          <h1 className="text-[15px] font-bold tracking-tight text-white leading-none">
+          <h1 className="font-display text-[15px] font-bold tracking-tight text-white leading-none">
             Study Buddy
           </h1>
-          <p className="mt-1 text-[11px] font-medium text-[#8E87A8]">
+          <p className="mt-1 text-[11px] font-medium text-[#9E97B8]">
             Mambo Companion
           </p>
         </div>
       </div>
 
-      {/* Navigation Links */}
+      {/* Navigation Links (Strict Figma Purple Tokens) */}
       <nav
-        className="mt-2 flex flex-1 flex-col gap-1 px-2.5"
+        className="mt-2 flex flex-1 flex-col gap-1 px-2.5 overflow-y-auto"
         aria-label="Main Navigation"
       >
         {NAV_ITEMS.map((item) => {
@@ -215,15 +215,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab }) => {
               key={item.id}
               type="button"
               onClick={() => onSelectTab(item.id)}
-              className={`flex w-full items-center justify-between rounded-r-xl px-3.5 py-2.5 text-[13px] font-medium transition cursor-pointer ${
+              className={`flex w-full items-center justify-between rounded-r-xl px-3.5 py-2.5 text-[13px] transition cursor-pointer ${
                 isActive
-                  ? 'bg-indigo-950/80 text-indigo-200 border-l-2 border-indigo-500 font-semibold'
-                  : 'text-[#9E97B8] hover:bg-[#1B162B] hover:text-white border-l-2 border-transparent'
+                  ? 'bg-[#2A244D] text-[#C4B5FD] border-l-2 border-[#7C3AED] font-semibold'
+                  : 'text-[#9E97B8] hover:bg-[#1A1829] hover:text-white border-l-2 border-transparent font-medium'
               }`}
             >
               <span className="flex items-center gap-3">
                 <span
-                  className={isActive ? 'text-indigo-400' : 'text-[#7D7696]'}
+                  className={
+                    isActive ? 'text-[#A594F9]' : 'text-[#7D7696]'
+                  }
                 >
                   {item.icon}
                 </span>

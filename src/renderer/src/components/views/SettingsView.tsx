@@ -1,6 +1,7 @@
 // src/renderer/src/components/views/SettingsView.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
+import { playChime, ChimeType } from '../../utils/audio';
 
 export type AppearanceMode = 'dark' | 'light' | 'system';
 type DefaultDisplayMode = 'dashboard' | 'companion_only' | 'compact_hud';
@@ -23,9 +24,24 @@ export function applyThemeToDocument(mode: AppearanceMode): void {
   root.setAttribute('data-theme', resolvedTheme);
 }
 
-export const SettingsView: React.FC = () => {
-  const { scratchpad, togglePhoneConnection, toggleSyncStatus } = useApp();
+// Initialize theme to 'system' (Match system) immediately on module load if not overridden
+if (typeof window !== 'undefined') {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY) as AppearanceMode;
+    applyThemeToDocument(
+      saved === 'dark' || saved === 'light' || saved === 'system'
+        ? saved
+        : 'system'
+    );
+  } catch {
+    applyThemeToDocument('system');
+  }
+}
 
+export const SettingsView: React.FC = () => {
+  const { scratchpad, exportScratchpadToMarkdown } = useApp();
+
+  // Default to 'system' (Match system) on initial load
   const [appearance, setAppearance] = useState<AppearanceMode>(() => {
     try {
       const saved = localStorage.getItem(THEME_STORAGE_KEY) as AppearanceMode;
@@ -33,19 +49,22 @@ export const SettingsView: React.FC = () => {
         return saved;
       }
     } catch {
-      // Fall back to dark default
+      // Fall back to Match system
     }
-    return 'dark';
+    return 'system';
   });
 
   const [displayMode, setDisplayMode] =
     useState<DefaultDisplayMode>('dashboard');
 
-  const [launchAtLogin, setLaunchAtLogin] = useState<boolean>(true);
-  const [startMinimized, setStartMinimized] = useState<boolean>(false);
-  const [strictLockoutTimer, setStrictLockoutTimer] = useState<boolean>(false);
-  const [hideKeepOpenInStrict, setHideKeepOpenInStrict] =
-    useState<boolean>(true);
+  // Card 3: Audio & Companion Chimes State
+  const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
+  const [selectedChime, setSelectedChime] =
+    useState<ChimeType>('gentle_bell');
+
+  // Card 4: Account & Cloud Sync State
+  const [lastSyncedLabel, setLastSyncedLabel] =
+    useState<string>('Synced automatically upon login');
 
   const handleSelectAppearance = useCallback((nextMode: AppearanceMode) => {
     setAppearance(nextMode);
@@ -57,7 +76,6 @@ export const SettingsView: React.FC = () => {
     }
   }, []);
 
-  // Apply theme on mount and listen for OS theme changes when set to 'system'
   useEffect(() => {
     applyThemeToDocument(appearance);
 
@@ -75,203 +93,221 @@ export const SettingsView: React.FC = () => {
           Application Settings
         </h2>
         <p className="mt-1 text-[13px] text-[#9E97B8]">
-          Manage appearance tokens, startup behavior, iPhone companion sync, and strict intervention locks.
+          Customize your theme appearance, default workspace layout, audio chimes, and cloud backup.
         </p>
       </div>
 
+      {/* 4 Clean Cards Grid */}
       <div className="grid grid-cols-12 gap-5">
-        {/* Left Column: Appearance, Display Mode, Startup */}
-        <div className="col-span-6 flex flex-col gap-4 rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
-          {/* Appearance Toggles (Dark, Light, Match system) */}
+        {/* Card 1: Appearance */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
           <div>
-            <h3 className="text-[14px] font-bold text-white">Appearance</h3>
-            <p className="mt-0.5 text-[11.5px] text-[#9E97B8]">
-              Switch between Dark mode, Light mode, or match your system appearance.
+            <div className="flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-white">Appearance</h3>
+              <span className="rounded-full bg-[#2A244D] px-2.5 py-0.5 text-[11px] font-semibold text-[#C4B5FD]">
+                {appearance === 'system'
+                  ? 'Match system'
+                  : appearance === 'dark'
+                  ? 'Dark'
+                  : 'Light'}
+              </span>
+            </div>
+            <p className="mt-1 text-[12px] text-[#9E97B8]">
+              Switch between Dark mode, AA high-contrast Light mode, or match your OS theme automatically.
             </p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
+          </div>
+
+          <div className="mt-5 grid grid-cols-3 gap-2.5">
+            {[
+              { id: 'dark', label: 'Dark' },
+              { id: 'light', label: 'Light' },
+              { id: 'system', label: 'Match system' },
+            ].map((opt) => {
+              const isSelected = appearance === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() =>
+                    handleSelectAppearance(opt.id as AppearanceMode)
+                  }
+                  className={`rounded-xl border py-2.5 text-[12.5px] font-semibold transition cursor-pointer ${
+                    isSelected
+                      ? 'border-[#7C3AED] bg-[#A594F9] text-[#141324] font-bold shadow-sm'
+                      : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8] hover:border-[#52438F] hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Card 2: Default Display Mode */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
+          <div>
+            <h3 className="text-[15px] font-bold text-white">
+              Default Display Mode
+            </h3>
+            <p className="mt-1 text-[12px] text-[#9E97B8]">
+              Choose how Study Buddy opens when launching a new study session.
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2">
+            {[
+              {
+                id: 'dashboard',
+                title: 'Full Studio Dashboard + Floating Overlays',
+              },
+              {
+                id: 'companion_only',
+                title: 'Transparent Desktop Companion Only',
+              },
+              {
+                id: 'compact_hud',
+                title: 'Minimal Companion + Notepad',
+              },
+            ].map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() =>
+                  setDisplayMode(mode.id as DefaultDisplayMode)
+                }
+                className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-[12.5px] font-medium transition cursor-pointer ${
+                  displayMode === mode.id
+                    ? 'border-[#7C3AED] bg-[#2A244D] text-[#C4B5FD] font-semibold'
+                    : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8] hover:text-white'
+                }`}
+              >
+                <span>{mode.title}</span>
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    displayMode === mode.id
+                      ? 'bg-[#A594F9]'
+                      : 'bg-[#2C253E]'
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Card 3: Audio & Companion Chimes */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
+          <div>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-white">
+                Audio & Companion Chimes
+              </h3>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={audioEnabled}
+                onClick={() => setAudioEnabled((prev) => !prev)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                  audioEnabled ? 'bg-[#A594F9]' : 'bg-[#2C253E]'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-[#141324] transition-transform ${
+                    audioEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="mt-1 text-[12px] text-[#9E97B8]">
+              Synthesized harmonic Web Audio cues when hydration, break, or nudge overlays appear.
+            </p>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
               {[
-                { id: 'dark', label: 'Dark' },
-                { id: 'light', label: 'Light' },
-                { id: 'system', label: 'Match system' },
-              ].map((opt) => {
-                const isSelected = appearance === opt.id;
+                { id: 'gentle_bell', label: 'Gentle Bell' },
+                { id: 'break_start', label: 'Break Triad' },
+                { id: 'alert', label: 'Nudge Pulse' },
+              ].map((tone) => {
+                const active = selectedChime === tone.id;
                 return (
                   <button
-                    key={opt.id}
+                    key={tone.id}
                     type="button"
-                    onClick={() =>
-                      handleSelectAppearance(opt.id as AppearanceMode)
-                    }
-                    className={`rounded-xl border py-2 text-[12.5px] font-semibold transition cursor-pointer ${
-                      isSelected
-                        ? 'border-[#A594F9] bg-[#A594F9] text-[#171329] font-bold shadow-sm'
+                    onClick={() => setSelectedChime(tone.id as ChimeType)}
+                    className={`rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition cursor-pointer ${
+                      active
+                        ? 'border-[#7C3AED] bg-[#2A244D] text-[#C4B5FD]'
                         : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8] hover:text-white'
                     }`}
                   >
-                    {opt.label}
+                    {tone.label}
                   </button>
                 );
               })}
             </div>
-          </div>
 
-          <hr className="border-[#262038]" />
-
-          {/* Default Display Mode */}
-          <div>
-            <h3 className="text-[14px] font-bold text-white">
-              Default Display Mode
-            </h3>
-            <div className="mt-2.5 flex flex-col gap-2">
-              {[
-                {
-                  id: 'dashboard',
-                  title: 'Full Studio Dashboard + Floating Overlays',
-                },
-                {
-                  id: 'companion_only',
-                  title: 'Transparent Desktop Companion Only',
-                },
-                {
-                  id: 'compact_hud',
-                  title: 'Minimal Companion + Notepad',
-                },
-              ].map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() =>
-                    setDisplayMode(mode.id as DefaultDisplayMode)
-                  }
-                  className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-[12.5px] font-medium transition cursor-pointer ${
-                    displayMode === mode.id
-                      ? 'border-[#A594F9] bg-[#261E42] text-white'
-                      : 'border-[#2C253E] bg-[#120F1D] text-[#9E97B8]'
-                  }`}
-                >
-                  <span>{mode.title}</span>
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      displayMode === mode.id
-                        ? 'bg-[#A594F9]'
-                        : 'bg-[#2C253E]'
-                    }`}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <hr className="border-[#262038]" />
-
-          {/* Startup Behavior */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-[14px] font-bold text-white">
-              Startup Behavior
-            </h3>
-
-            <label className="flex items-center justify-between text-[12.5px] text-[#E2DFF0] cursor-pointer">
-              <span>Launch Study Buddy automatically at login</span>
-              <input
-                type="checkbox"
-                checked={launchAtLogin}
-                onChange={(e) => setLaunchAtLogin(e.target.checked)}
-                className="h-4 w-4 accent-[#A594F9]"
-              />
-            </label>
-
-            <label className="flex items-center justify-between text-[12.5px] text-[#E2DFF0] cursor-pointer">
-              <span>Start collapsed to floating Mambo dock</span>
-              <input
-                type="checkbox"
-                checked={startMinimized}
-                onChange={(e) => setStartMinimized(e.target.checked)}
-                className="h-4 w-4 accent-[#A594F9]"
-              />
-            </label>
+            <button
+              type="button"
+              onClick={() => {
+                if (audioEnabled) playChime(selectedChime);
+              }}
+              className="rounded-xl bg-[#A594F9] px-3.5 py-1.5 text-[12px] font-bold text-[#141324] hover:bg-[#B8A9FA] transition cursor-pointer shrink-0"
+            >
+              Test Chime
+            </button>
           </div>
         </div>
 
-        {/* Right Column: Mobile Companion Sync & Strict Blocking Options */}
-        <div className="col-span-6 flex flex-col gap-4 rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
-          {/* Mobile Sync Card */}
-          <div className="rounded-xl border border-[#342C4C] bg-[#120F1D] p-4">
+        {/* Card 4: Account & Automatic Cloud Sync */}
+        <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
+          <div>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    scratchpad.phoneConnected
-                      ? 'bg-[#4ADE80]'
-                      : 'bg-[#6E678A]'
-                  }`}
-                />
-                <span className="text-[14px] font-bold text-white">
-                  {scratchpad.phoneConnected
-                    ? 'iPhone connected'
-                    : 'Phone not connected'}
-                </span>
-              </div>
-
-              <span className="rounded-full bg-[#0E362D] px-2.5 py-0.5 text-[11px] font-semibold text-[#4ADE80]">
+              <h3 className="text-[15px] font-bold text-white">
+                Cloud Sync & Notepad Backup
+              </h3>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0E362D] px-2.5 py-0.5 text-[11px] font-semibold text-[#4ADE80]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#4ADE80]" />
                 {scratchpad.syncStatus === 'synced'
                   ? 'Cloud Synced'
-                  : 'Offline · saved locally'}
+                  : 'Local Backup'}
               </span>
             </div>
-
-            <p className="mt-2 text-[12px] text-[#9E97B8]">
-              Syncs your Notepad notes, active focus timers, and hydration streaks with the Study Buddy iOS companion app in real time.
+            <p className="mt-1 text-[12px] text-[#9E97B8]">
+              Cross-device sync occurs automatically upon login across desktop and mobile.
             </p>
-
-            <div className="mt-3.5 flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={togglePhoneConnection}
-                className="rounded-lg border border-[#3B3354] bg-[#1E192D] px-3 py-1.5 text-[12px] font-medium text-[#EAE6F8] hover:bg-[#29223D] transition cursor-pointer"
-              >
-                {scratchpad.phoneConnected
-                  ? 'Disconnect iPhone'
-                  : 'Reconnect iPhone'}
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleSyncStatus}
-                className="rounded-lg border border-[#3B3354] bg-[#1E192D] px-3 py-1.5 text-[12px] font-medium text-[#A594F9] hover:bg-[#29223D] transition cursor-pointer"
-              >
-                Toggle Cloud / Local Mode
-              </button>
-            </div>
           </div>
 
-          {/* Strict Blocking Options */}
-          <div className="flex flex-col gap-3 rounded-xl border border-[#342C4C] bg-[#120F1D] p-4">
-            <h3 className="text-[14px] font-bold text-white">
-              Strict Blocking Options
-            </h3>
-            <p className="text-[11.5px] text-[#9E97B8]">
-              Reinforce self-control when Mambo detects a blocked app or website.
-            </p>
+          <div className="mt-4 flex items-center justify-between border-t border-[#262038] pt-3.5">
+            <span className="text-[11.5px] font-medium text-[#9E97B8]">
+              {lastSyncedLabel}
+            </span>
 
-            <label className="mt-1 flex items-center justify-between text-[12.5px] text-[#E2DFF0] cursor-pointer">
-              <span>Hide &ldquo;Keep open [App]&rdquo; button in Strict Mode</span>
-              <input
-                type="checkbox"
-                checked={hideKeepOpenInStrict}
-                onChange={(e) => setHideKeepOpenInStrict(e.target.checked)}
-                className="h-4 w-4 accent-[#A594F9]"
-              />
-            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setLastSyncedLabel(
+                    `Synced at ${new Date().toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                  )
+                }
+                className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[12px] font-semibold text-[#C4B5FD] hover:bg-[#3C3173] transition cursor-pointer"
+              >
+                Sync Now
+              </button>
 
-            <label className="flex items-center justify-between text-[12.5px] text-[#E2DFF0] cursor-pointer">
-              <span>Require 10-second reflection delay before bypassing</span>
-              <input
-                type="checkbox"
-                checked={strictLockoutTimer}
-                onChange={(e) => setStrictLockoutTimer(e.target.checked)}
-                className="h-4 w-4 accent-[#A594F9]"
-              />
-            </label>
+              <button
+                type="button"
+                onClick={exportScratchpadToMarkdown}
+                className="rounded-xl border border-[#2C253E] bg-[#120F1D] px-3 py-1.5 text-[12px] font-semibold text-[#E2DFF0] hover:border-[#52438F] transition cursor-pointer"
+              >
+                Export .md
+              </button>
+            </div>
           </div>
         </div>
       </div>

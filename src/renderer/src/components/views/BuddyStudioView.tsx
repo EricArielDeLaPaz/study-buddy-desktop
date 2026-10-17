@@ -1,5 +1,5 @@
 // src/renderer/src/components/views/BuddyStudioView.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ChibiCompanion,
   ChibiCompanionMode,
@@ -55,7 +55,7 @@ export const DEFAULT_ANIMATION_SLOTS: BuddyAnimationSlotConfig[] = [
     slotKey: 'Idle',
     description: 'Calm breathing float & natural blink cycle',
     mode: 'idle_studying',
-    reminderTrigger: 'None (Idle Focus)',
+    reminderTrigger: 'None',
   },
   {
     id: 'slot-water-break',
@@ -71,7 +71,7 @@ export const DEFAULT_ANIMATION_SLOTS: BuddyAnimationSlotConfig[] = [
     slotKey: 'Break',
     description: 'Relaxed waving posture for 10m breaks',
     mode: 'bathroom',
-    reminderTrigger: 'Bathroom Break / Stretch',
+    reminderTrigger: 'Bathroom Break',
   },
   {
     id: 'slot-distraction-alert',
@@ -137,7 +137,7 @@ export const DEFAULT_USER_BUDDY_PRESETS: UserBuddyPreset[] = [
         slotKey: 'Idle',
         description: 'Custom lo-fi study loop',
         mode: 'idle_studying',
-        reminderTrigger: 'Posture Check',
+        reminderTrigger: 'None',
         uploadedAnimation: {
           fileName: 'night-coding-idle.webm',
           dataUrl: '',
@@ -191,7 +191,7 @@ const BUBBLE_COLORS = [
 ] as const;
 
 const REMINDER_LINKAGE_OPTIONS = [
-  'None (Idle Focus)',
+  'None',
   'Drink Water',
   'Bathroom Break',
   'Posture Check',
@@ -200,7 +200,6 @@ const REMINDER_LINKAGE_OPTIONS = [
 ] as const;
 
 export const BuddyStudioView: React.FC = () => {
-  // Unlocked Progression Buddies Only
   const unlockedProgressionBuddies = COMPANION_LEVEL_ROSTER.filter(
     (item) => item.unlocked
   );
@@ -212,7 +211,6 @@ export const BuddyStudioView: React.FC = () => {
     return loadActiveCompanionSelection().id;
   });
 
-  // Animation State Slots for the currently selected buddy
   const [slots, setSlots] = useState<BuddyAnimationSlotConfig[]>(() => {
     return loadActiveCompanionSelection().slots;
   });
@@ -233,11 +231,15 @@ export const BuddyStudioView: React.FC = () => {
   const [slotFormLabel, setSlotFormLabel] = useState<string>('');
   const [slotFormKey, setSlotFormKey] = useState<string>('Custom');
   const [slotFormDesc, setSlotFormDesc] = useState<string>('');
-  const [slotFormReminder, setSlotFormReminder] =
-    useState<string>('Drink Water');
+  const [slotFormReminder, setSlotFormReminder] = useState<string>('None');
   const [slotFormUpload, setSlotFormUpload] = useState<
     CustomSlotUpload | undefined
   >(undefined);
+
+  // Custom Figma Dropdown State inside EditSlotModal
+  const [isReminderDropdownOpen, setIsReminderDropdownOpen] =
+    useState<boolean>(false);
+  const reminderDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Create Custom Buddy Overlay Modal State
   const [isCustomStudioOpen, setIsCustomStudioOpen] = useState<boolean>(false);
@@ -254,12 +256,26 @@ export const BuddyStudioView: React.FC = () => {
   const [newModalSlotName, setNewModalSlotName] = useState<string>('');
   const [newModalSlotDesc, setNewModalSlotDesc] = useState<string>('');
 
+  useEffect(() => {
+    function handleOutsideClick(e: MouseEvent) {
+      if (
+        reminderDropdownRef.current &&
+        !reminderDropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsReminderDropdownOpen(false);
+      }
+    }
+    if (isReminderDropdownOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isReminderDropdownOpen]);
+
   const activeUserPreset = userPresets.find((p) => p.id === selectedCardId);
   const activeProgressionBuddy = unlockedProgressionBuddies.find(
     (b) => b.id === selectedCardId
   );
 
-  // Sync active companion selection & slots to localStorage and broadcast to RemindersView
   useEffect(() => {
     const activeSelection: ActiveCompanionSelection = {
       id: selectedCardId,
@@ -315,25 +331,29 @@ export const BuddyStudioView: React.FC = () => {
     playChime('gentle_bell');
   };
 
-  // Open Edit Modal for an existing Animation State Slot
   const handleOpenEditSlotModal = (slot: BuddyAnimationSlotConfig) => {
     setEditingSlotId(slot.id);
     setSlotFormLabel(slot.label);
     setSlotFormKey(slot.slotKey);
     setSlotFormDesc(slot.description);
-    setSlotFormReminder(slot.reminderTrigger || 'Drink Water');
+    const normalizedTrigger =
+      !slot.reminderTrigger || slot.reminderTrigger.startsWith('None')
+        ? 'None'
+        : slot.reminderTrigger;
+    setSlotFormReminder(normalizedTrigger);
     setSlotFormUpload(slot.uploadedAnimation);
+    setIsReminderDropdownOpen(false);
     setIsSlotModalOpen(true);
   };
 
-  // Open Modal to Add a New Animation State Slot
   const handleOpenAddSlotModal = () => {
     setEditingSlotId(null);
     setSlotFormLabel('');
     setSlotFormKey('Custom');
     setSlotFormDesc('');
-    setSlotFormReminder('Drink Water');
+    setSlotFormReminder('None');
     setSlotFormUpload(undefined);
+    setIsReminderDropdownOpen(false);
     setIsSlotModalOpen(true);
   };
 
@@ -397,7 +417,6 @@ export const BuddyStudioView: React.FC = () => {
     playChime('gentle_bell');
   };
 
-  // Create Custom Buddy Modal Handlers
   const handleCustomModalSlotUpload = (
     slotId: string,
     e: React.ChangeEvent<HTMLInputElement>
@@ -435,7 +454,7 @@ export const BuddyStudioView: React.FC = () => {
       description:
         newModalSlotDesc.trim() || 'Custom user-defined animation state slot',
       mode: 'celebrating',
-      reminderTrigger: 'Drink Water',
+      reminderTrigger: 'None',
     };
     setCustomModalSlots((prev) => [...prev, added]);
     setNewModalSlotName('');
@@ -487,14 +506,14 @@ export const BuddyStudioView: React.FC = () => {
         <button
           type="button"
           onClick={() => setIsCustomStudioOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] shadow-md hover:bg-[#B5A7FA] transition cursor-pointer shrink-0"
+          className="flex items-center gap-2 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#141324] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer shrink-0"
         >
           <span>+ Create Custom Buddy</span>
         </button>
       </div>
 
-      {/* Horizontally Scrollable Companion Roster (Hug/Wrap Sizing, No Level Badges, "Unlocked at Lv #" Status) */}
-      <div className="overflow-x-auto flex flex-nowrap scrollbar-thin py-1 gap-4">
+      {/* Horizontally Scrollable Companion Roster (Tag Badges Removed for Clean Display) */}
+      <div className="overflow-x-auto flex flex-nowrap py-1 gap-4">
         {/* 1. Unlocked Progression Buddies */}
         {unlockedProgressionBuddies.map((item) => {
           const isSelected = selectedCardId === item.id;
@@ -510,8 +529,8 @@ export const BuddyStudioView: React.FC = () => {
               onClick={() => handleSelectUnlockedBuddy(item)}
               className={`shrink-0 min-w-fit flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left transition cursor-pointer ${
                 isSelected
-                  ? 'border-[#A594F9] bg-[#261E42] shadow-[0_8px_24px_rgba(165,148,249,0.18)]'
-                  : 'border-[#2C253E] bg-[#181424] hover:border-[#4E4187]'
+                  ? 'border-[#A594F9] bg-[#2A244D] shadow-[0_8px_24px_rgba(165,148,249,0.18)]'
+                  : 'border-[#2C253E] bg-[#181424] hover:border-[#52438F]'
               }`}
             >
               <CompanionMiniAvatar
@@ -532,7 +551,7 @@ export const BuddyStudioView: React.FC = () => {
           );
         })}
 
-        {/* 2. User Presets (Marketplace & Custom) */}
+        {/* 2. User Presets (Clean Cards Without "Custom" or "Marketplace" Badges) */}
         {userPresets.map((preset) => {
           const isSelected = selectedCardId === preset.id;
           const isCustom = preset.source === 'Custom';
@@ -543,8 +562,8 @@ export const BuddyStudioView: React.FC = () => {
               onClick={() => handleSelectUserPreset(preset)}
               className={`shrink-0 min-w-fit flex items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left transition cursor-pointer ${
                 isSelected
-                  ? 'border-[#A594F9] bg-[#261E42] shadow-[0_8px_24px_rgba(165,148,249,0.18)]'
-                  : 'border-[#2C253E] bg-[#181424] hover:border-[#4E4187]'
+                  ? 'border-[#A594F9] bg-[#2A244D] shadow-[0_8px_24px_rgba(165,148,249,0.18)]'
+                  : 'border-[#2C253E] bg-[#181424] hover:border-[#52438F]'
               }`}
             >
               <CompanionMiniAvatar
@@ -554,22 +573,11 @@ export const BuddyStudioView: React.FC = () => {
               />
 
               <div className="pr-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-[13.5px] font-bold text-white whitespace-nowrap">
-                    {preset.name}
-                  </p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold whitespace-nowrap ${
-                      isCustom
-                        ? 'bg-[#0E362D] text-[#4ADE80] border border-[#17594A]'
-                        : 'bg-[#3C3173] text-[#E2DFF0] border border-[#5B4B9A]'
-                    }`}
-                  >
-                    {preset.source}
-                  </span>
-                </div>
+                <p className="text-[13.5px] font-bold text-white whitespace-nowrap">
+                  {preset.name}
+                </p>
                 <p className="mt-0.5 text-[11px] font-medium text-[#C4B5FD] whitespace-nowrap">
-                  {preset.source} Preset · {preset.slots?.length ?? 4} slots
+                  {preset.slots?.length ?? 4} animation slots
                 </p>
               </div>
             </button>
@@ -582,20 +590,19 @@ export const BuddyStudioView: React.FC = () => {
         {/* Left: Live Companion Stage & Speech Bubble Color Selector */}
         <div className="col-span-6 flex flex-col items-center justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-6">
           {hasUploadedAnimationInCurrentSlot ? (
-            <div className="relative flex h-[220px] w-[220px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[#4E4187] bg-[#0D0B14] p-3">
+            <div className="relative flex h-[220px] w-[220px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[#52438F] bg-[#0D0B14] p-3">
               <img
                 src={currentlySelectedSlot?.uploadedAnimation?.dataUrl}
                 alt={currentlySelectedSlot?.label}
                 className="h-36 w-36 object-contain"
               />
-              <span className="mt-2 rounded-full bg-[#261E42] px-3 py-0.5 text-[11px] font-semibold text-[#A594F9]">
+              <span className="mt-2 rounded-full bg-[#2A244D] px-3 py-0.5 text-[11px] font-semibold text-[#A594F9]">
                 {currentlySelectedSlot?.label}
               </span>
             </div>
           ) : isCustomBuddyActive &&
             !currentlySelectedSlot?.uploadedAnimation?.fileName ? (
-            /* Clean SVG Placeholder when a slot has no animation uploaded yet */
-            <div className="relative flex h-[220px] w-[220px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#4E4187] bg-[#0E0B16] p-5 text-center">
+            <div className="relative flex h-[220px] w-[220px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#52438F] bg-[#0E0B16] p-5 text-center">
               <svg
                 width="44"
                 height="44"
@@ -621,7 +628,7 @@ export const BuddyStudioView: React.FC = () => {
             <ChibiCompanion mode={previewMode} size="lg" />
           )}
 
-          {/* Live Speech Bubble Preview (Fredoka Display Font) */}
+          {/* Live Speech Bubble Preview */}
           <div className="w-full mt-4">
             <div
               className="mx-auto h-0 w-0"
@@ -663,7 +670,7 @@ export const BuddyStudioView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Animation State Slots with Edit Pencil & "+ Add Animation State Slot" */}
+        {/* Right: Animation State Slots */}
         <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -679,13 +686,13 @@ export const BuddyStudioView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenAddSlotModal}
-                className="rounded-xl border border-[#4E4187] bg-[#261E42] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#35295B] hover:text-white transition cursor-pointer shrink-0"
+                className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#3C3173] hover:text-white transition cursor-pointer shrink-0"
               >
                 + Add Animation State Slot
               </button>
             </div>
 
-            <div className="mt-4 flex max-h-[270px] flex-col gap-2.5 overflow-y-auto scrollbar-thin pr-1">
+            <div className="mt-4 flex max-h-[270px] flex-col gap-2.5 overflow-y-auto pr-1">
               {slots.map((slot) => {
                 const isSelected = selectedSlotId === slot.id;
                 const uploadedName = slot.uploadedAnimation?.fileName;
@@ -700,12 +707,11 @@ export const BuddyStudioView: React.FC = () => {
                     }}
                     className={`flex items-center justify-between rounded-xl border p-3.5 text-left transition cursor-pointer ${
                       isSelected
-                        ? 'border-[#A594F9] bg-[#261E42]'
-                        : 'border-[#2C253E] bg-[#141020] hover:bg-[#1E192E]'
+                        ? 'border-[#A594F9] bg-[#2A244D]'
+                        : 'border-[#2C253E] bg-[#141020] hover:bg-[#232136]'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      {/* Mini SVG Slot Thumbnail / Placeholder */}
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#3B3256] bg-[#0E0B16] text-[#A594F9]">
                         <svg
                           width="16"
@@ -742,14 +748,13 @@ export const BuddyStudioView: React.FC = () => {
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold ${
                           isSelected
-                            ? 'bg-[#A594F9] text-[#171329]'
+                            ? 'bg-[#A594F9] text-[#141324]'
                             : 'bg-[#241E36] text-[#9E97B8]'
                         }`}
                       >
                         {isSelected ? 'Playing' : 'Preview'}
                       </span>
 
-                      {/* Edit Icon (Pencil) Button */}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -758,7 +763,7 @@ export const BuddyStudioView: React.FC = () => {
                         }}
                         title={`Edit ${slot.label}`}
                         aria-label={`Edit ${slot.label}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#3B3256] bg-[#1A1528] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#3B3256] bg-[#1A1528] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#141324] transition cursor-pointer"
                       >
                         <svg
                           width="13"
@@ -781,7 +786,6 @@ export const BuddyStudioView: React.FC = () => {
             </div>
           </div>
 
-          {/* Custom Preview Phrase Input */}
           <div className="mt-4 border-t border-[#262038] pt-3.5">
             <label className="block text-[11.5px] font-medium text-[#9E97B8]">
               Test Bubble Copy
@@ -796,12 +800,12 @@ export const BuddyStudioView: React.FC = () => {
         </div>
       </div>
 
-      {/* Edit / Add Animation State Slot Modal */}
+      {/* Edit / Add Animation State Slot Modal with Figma Dropdown ("None" option) */}
       {isSlotModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <form
             onSubmit={handleSaveSlotModal}
-            className="w-[450px] rounded-[24px] border border-[#4E4187] bg-[#181424] p-5 shadow-2xl flex flex-col gap-4"
+            className="w-[450px] rounded-[24px] border border-[#52438F] bg-[#181424] p-5 shadow-2xl flex flex-col gap-4"
           >
             <div className="flex items-center justify-between border-b border-[#2C253E] pb-3">
               <div>
@@ -817,7 +821,7 @@ export const BuddyStudioView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsSlotModalOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#261E42] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#2A244D] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#141324] transition cursor-pointer"
               >
                 ✕
               </button>
@@ -833,7 +837,7 @@ export const BuddyStudioView: React.FC = () => {
                 value={slotFormLabel}
                 onChange={(e) => setSlotFormLabel(e.target.value)}
                 placeholder="e.g., Eye Rest Blink, Deep Breath Loop..."
-                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                className="mt-1.5 w-full rounded-xl border border-[#52438F] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
               />
             </div>
 
@@ -846,25 +850,53 @@ export const BuddyStudioView: React.FC = () => {
                 value={slotFormDesc}
                 onChange={(e) => setSlotFormDesc(e.target.value)}
                 placeholder="Describe when this animation plays..."
-                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                className="mt-1.5 w-full rounded-xl border border-[#52438F] bg-[#0E0B16] px-3 py-2 text-[12.5px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
               />
             </div>
 
-            <div>
+            {/* Standardized Figma Dropdown Component for Reminder Linkage Trigger */}
+            <div className="relative" ref={reminderDropdownRef}>
               <label className="block text-[12px] font-semibold text-[#E2DFF0]">
                 Reminder Linkage Trigger
               </label>
-              <select
-                value={slotFormReminder}
-                onChange={(e) => setSlotFormReminder(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[12.5px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
+              <button
+                type="button"
+                onClick={() => setIsReminderDropdownOpen((prev) => !prev)}
+                className="mt-1.5 flex w-full items-center justify-between rounded-xl border border-[#52438F] bg-[#0E0B16] px-3.5 py-2.5 text-left text-[12.5px] font-semibold text-white hover:border-[#A594F9] transition cursor-pointer"
               >
-                {REMINDER_LINKAGE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
+                <span>{slotFormReminder}</span>
+                <span className="text-[11px] text-[#9E97B8]">
+                  {isReminderDropdownOpen ? '▴' : '▾'}
+                </span>
+              </button>
+
+              {isReminderDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-50 mt-1.5 rounded-xl border border-[#52438F] bg-[#232136] p-1.5 shadow-xl">
+                  {REMINDER_LINKAGE_OPTIONS.map((opt) => {
+                    const isSelected = slotFormReminder === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          setSlotFormReminder(opt);
+                          setIsReminderDropdownOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[12px] transition cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#2A244D] text-[#C4B5FD] font-semibold'
+                            : 'text-[#E2DFF0] hover:bg-[#2A244D]/60 hover:text-white'
+                        }`}
+                      >
+                        <span>{opt}</span>
+                        {isSelected && (
+                          <span className="text-[11px] text-[#A594F9]">✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between rounded-xl border border-[#2C253E] bg-[#141020] p-3">
@@ -878,7 +910,7 @@ export const BuddyStudioView: React.FC = () => {
                     : 'No custom animation uploaded yet'}
                 </p>
               </div>
-              <label className="shrink-0 rounded-xl bg-[#A594F9] px-3.5 py-1.5 text-[11.5px] font-bold text-[#171329] hover:bg-[#B5A7FA] transition cursor-pointer">
+              <label className="shrink-0 rounded-xl bg-[#A594F9] px-3.5 py-1.5 text-[11.5px] font-bold text-[#141324] hover:bg-[#B8A9FA] transition cursor-pointer">
                 <span>Upload Animation</span>
                 <input
                   type="file"
@@ -893,13 +925,13 @@ export const BuddyStudioView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsSlotModalOpen(false)}
-                className="rounded-xl border border-[#4E4187] bg-[#141020] px-4 py-2 text-[12.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
+                className="rounded-xl border border-[#52438F] bg-[#141020] px-4 py-2 text-[12.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] hover:bg-[#B5A7FA] cursor-pointer"
+                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#141324] hover:bg-[#B8A9FA] cursor-pointer"
               >
                 Save Slot
               </button>
@@ -908,12 +940,12 @@ export const BuddyStudioView: React.FC = () => {
         </div>
       )}
 
-      {/* Create Custom Buddy Studio Modal ("Upload Animation" + "+ Add Slot") */}
+      {/* Create Custom Buddy Studio Modal */}
       {isCustomStudioOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <form
             onSubmit={handleSaveCustomBuddy}
-            className="flex max-h-[600px] w-[520px] flex-col overflow-hidden rounded-[24px] border border-[#4E4187] bg-[#181424] p-5 shadow-2xl gap-4"
+            className="flex max-h-[600px] w-[520px] flex-col overflow-hidden rounded-[24px] border border-[#52438F] bg-[#181424] p-5 shadow-2xl gap-4"
           >
             <div className="flex items-center justify-between border-b border-[#2C253E] pb-3">
               <div>
@@ -927,7 +959,7 @@ export const BuddyStudioView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsCustomStudioOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#261E42] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#2A244D] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#141324] transition cursor-pointer"
               >
                 ✕
               </button>
@@ -943,12 +975,11 @@ export const BuddyStudioView: React.FC = () => {
                 value={customBuddyName}
                 onChange={(e) => setCustomBuddyName(e.target.value)}
                 placeholder="e.g., Starlight Mambo, Cozy Pixel Companion..."
-                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
+                className="mt-1.5 w-full rounded-xl border border-[#52438F] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#5A5373] focus:border-[#A594F9] focus:outline-none select-text"
               />
             </div>
 
-            {/* Scrollable Slot List with "Upload Animation" Buttons */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col gap-2.5 pr-1">
+            <div className="flex-1 overflow-y-auto flex flex-col gap-2.5 pr-1">
               <span className="text-[12px] font-semibold text-[#E2DFF0]">
                 Animation State Slots ({customModalSlots.length})
               </span>
@@ -971,7 +1002,7 @@ export const BuddyStudioView: React.FC = () => {
                       </p>
                     </div>
 
-                    <label className="shrink-0 rounded-lg border border-[#4E4187] bg-[#261E42] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer">
+                    <label className="shrink-0 rounded-lg border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[11.5px] font-semibold text-[#E2DFF0] hover:bg-[#A594F9] hover:text-[#141324] transition cursor-pointer">
                       <span>
                         {uploaded?.fileName
                           ? 'Replace Animation'
@@ -991,7 +1022,6 @@ export const BuddyStudioView: React.FC = () => {
               })}
             </div>
 
-            {/* "+ Add Slot" Creator Row inside Custom Buddy Modal */}
             <div className="rounded-xl border border-[#342C4C] bg-[#120F1D] p-3">
               <span className="block text-[11.5px] font-semibold text-[#C4B5FD]">
                 + Add Additional Animation Slot
@@ -1014,7 +1044,7 @@ export const BuddyStudioView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleAddExtraSlotInCustomModal}
-                  className="shrink-0 rounded-lg border border-[#4E4187] bg-[#261E42] px-3 py-1.5 text-[11.5px] font-bold text-[#A594F9] hover:bg-[#A594F9] hover:text-[#171329] transition cursor-pointer"
+                  className="shrink-0 rounded-lg border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[11.5px] font-bold text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#141324] transition cursor-pointer"
                 >
                   + Add Slot
                 </button>
@@ -1025,13 +1055,13 @@ export const BuddyStudioView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsCustomStudioOpen(false)}
-                className="rounded-xl border border-[#4E4187] bg-[#141020] px-4 py-2 text-[12.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
+                className="rounded-xl border border-[#52438F] bg-[#141020] px-4 py-2 text-[12.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#171329] hover:bg-[#B5A7FA] cursor-pointer"
+                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#141324] hover:bg-[#B8A9FA] cursor-pointer"
               >
                 Save Custom Buddy
               </button>
