@@ -6,8 +6,6 @@ Designed in Figma and built through AI-assisted iteration (about 30 hours from f
 
 > **Status: work in progress (rolling updates).** The desktop app is the focus right now. The mobile app and cloud sync are planned and not built yet.
 
-docs/images/demo.png
-
 ## What it does
 
 - **Focus sessions** with presets (Quick 25/5, Standard 45/5, Deep 60/10, Custom) and quick +30s, +1m and +5m extensions while a session runs.
