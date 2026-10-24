@@ -17,7 +17,7 @@ import {
 import { playChime } from '../utils/audio';
 import {
   getLocalDateKey,
-   recordDailyProgressDelta,
+  recordDailyProgressDelta,
   STORAGE_KEYS,
 } from '../utils/storage';
 
@@ -213,7 +213,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [sessionStats]);
 
-  // Reload session stats if user triggers "Reset my data" or "Load demo data" in Settings
   useEffect(() => {
     const handleReset = () => {
       setSessionStats(loadInitialSessionStats());
@@ -227,6 +226,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [overlayQueue, setOverlayQueue] = useState<OverlayState[]>([]);
   const [timerSeconds, setTimerSeconds] = useState<number>(0);
   const [isTimerCompleted, setIsTimerCompleted] = useState<boolean>(false);
+
+  // Notify main process whenever an intervention overlay is active or dismissed
+  useEffect(() => {
+    const isInterventionShowing = Boolean(
+      activeOverlay &&
+        activeOverlay.isActive &&
+        activeOverlay.kind === 'overlay_intervention'
+    );
+    window.electronAPI?.notifyInterventionState?.(isInterventionShowing);
+  }, [activeOverlay]);
 
   const [timerConfig, setTimerConfig] = useState<TimerConfig>({
     focusDurationSeconds: 25 * 60,
@@ -349,7 +358,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const dismissedKind = activeOverlay?.kind;
       const targetName = activeOverlay?.targetAppOrSite;
 
-      // Stage 8: If user clicked "Close <target>", politely ask OS to close/minimize target
+      // Immediately inform main process that the intervention overlay is dismissed
+      if (dismissedKind === 'overlay_intervention') {
+        window.electronAPI?.notifyInterventionState?.(false);
+      }
+
+      // If user clicked "Close <target>", politely ask OS to close app or minimize browser
       if (reason === 'close_target' && targetName) {
         void window.electronAPI?.closeOrMinimizeTarget?.(targetName);
       }
@@ -442,7 +456,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             lastUpdatedDate: getLocalDateKey(),
           }));
 
-          // Record 1 real focused minute into per-day history
           recordDailyProgressDelta({ focusMinutes: 1 });
         }
 

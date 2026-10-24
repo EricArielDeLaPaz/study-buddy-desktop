@@ -171,7 +171,6 @@ const StudyBuddyViewport: React.FC = () => {
   const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
 
-  // Stage 5: Start App Rules EMPTY on a fresh install; load and save to localStorage
   const [appRules, setAppRules] = useState<AppRuleItem[]>(() =>
     loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, [])
   );
@@ -189,7 +188,6 @@ const StudyBuddyViewport: React.FC = () => {
       window.removeEventListener('study-buddy:data-reset', handleResetOrDemo);
   }, []);
 
-  // Stage 8: Sync active focus session status and App Rules list to Main Process watcher
   useEffect(() => {
     window.electronAPI?.syncWatcherState?.({
       isFocusing: sessionStatus === 'focusing',
@@ -526,7 +524,7 @@ const StudyBuddyViewport: React.FC = () => {
 
   return (
     <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
-      {/* 1. EXCLUSIVE MODE A: Draggable & Resizable Study Buddy Desktop Window (Z_LAYERS.DASHBOARD = 40, above Notepad = 20) */}
+      {/* 1. EXCLUSIVE MODE A: Draggable & Resizable Study Buddy Desktop Window */}
       {isDashboardVisible && (
         <div
           onMouseEnter={() =>
@@ -608,7 +606,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock (Z_LAYERS.COMPANION_DOCK = 50) */}
+      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock */}
       {!isDashboardVisible && activeOverlay === null && (
         <div
           style={{ zIndex: Z_LAYERS.COMPANION_DOCK }}
@@ -627,7 +625,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Floating Resizable & Collision-Bounded Notepad (Z_LAYERS.NOTEPAD = 20, below Dashboard & Companion) */}
+      {/* 3. Floating Resizable & Collision-Bounded Notepad */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -643,7 +641,7 @@ const StudyBuddyViewport: React.FC = () => {
         />
       </div>
 
-      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal (Z_LAYERS.OVERLAY = 60) */}
+      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
       {activeOverlay !== null && (
         <div
           style={{
@@ -666,7 +664,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Floating Collapsible Dev Trigger Bar (Z_LAYERS.DEV_BAR = 55) */}
+      {/* 5. Floating Collapsible Dev Trigger Bar */}
       <div
         style={{ zIndex: Z_LAYERS.DEV_BAR }}
         className="fixed bottom-4 left-1/2 -translate-x-1/2 pointer-events-none"
@@ -743,6 +741,7 @@ const StudyBuddyViewport: React.FC = () => {
                 onClick={() =>
                   activateOverlayImmediately('overlay_intervention', {
                     targetAppOrSite: 'YouTube',
+                    strictMode: false,
                   })
                 }
                 className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-amber-200 transition cursor-pointer"
@@ -754,24 +753,13 @@ const StudyBuddyViewport: React.FC = () => {
                 type="button"
                 onClick={() =>
                   activateOverlayImmediately('overlay_intervention', {
-                    targetAppOrSite: 'Reddit',
+                    targetAppOrSite: 'YouTube',
+                    strictMode: true,
                   })
                 }
-                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-amber-200 transition cursor-pointer"
+                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-rose-200 transition cursor-pointer"
               >
-                Nudge: Reddit
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  activateOverlayImmediately('overlay_intervention', {
-                    targetAppOrSite: 'Discord',
-                  })
-                }
-                className="rounded-full bg-zinc-800 hover:bg-zinc-700 px-3 py-1 font-medium text-amber-200 transition cursor-pointer"
-              >
-                Nudge: Discord
+                Nudge: YouTube (Strict)
               </button>
 
               <button

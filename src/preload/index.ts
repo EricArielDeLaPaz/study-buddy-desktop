@@ -57,10 +57,6 @@ export const electronAPI = {
     };
   },
 
-  /**
-   * Stage 8: Syncs whether a focus session is currently running and the user's
-   * active App Rules list to the main process foreground window watcher.
-   */
   syncWatcherState: (payload: {
     isFocusing: boolean;
     rules: WatcherAppRule[];
@@ -68,10 +64,10 @@ export const electronAPI = {
     ipcRenderer.send('buddy:sync-watcher-state', payload);
   },
 
-  /**
-   * Stage 8: Politely asks the target desktop app window to close (no force-kill)
-   * or minimizes the browser window if the target is a website.
-   */
+  notifyInterventionState: (active: boolean): void => {
+    ipcRenderer.send('buddy:notify-intervention-state', { active });
+  },
+
   closeOrMinimizeTarget: (targetName: string): Promise<{ ok: boolean }> => {
     return ipcRenderer.invoke('buddy:close-or-minimize-target', { targetName });
   },

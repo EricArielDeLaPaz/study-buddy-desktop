@@ -40,6 +40,7 @@ export interface ElectronAPI {
     isFocusing: boolean;
     rules: WatcherAppRule[];
   }) => void;
+  notifyInterventionState: (active: boolean) => void;
   closeOrMinimizeTarget: (targetName: string) => Promise<{ ok: boolean }>;
 }
 

@@ -26,18 +26,35 @@ interface WatcherAppRule {
 }
 
 interface ForegroundWindowInfo {
+  pid: number;
+  rawProcessName: string;
   processName: string;
   windowTitle: string;
+}
+
+interface CapturedMatchTarget {
+  ruleId: string;
+  targetKey: string;
+  targetName: string;
+  resolvedKind: 'app' | 'website';
+  strictBlock: boolean;
+  pid: number;
+  rawProcessName: string;
 }
 
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
-// Stage 8 Watcher State
+// Stage 8 Watcher & Cooldown State
 let isFocusSessionRunning = false;
+let isInterventionOverlayActive = false;
 let watchedRules: WatcherAppRule[] = [];
-const nonStrictCooldowns = new Map<string, number>();
-const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+let lastCapturedMatch: CapturedMatchTarget | null = null;
+
+// Maps ruleId and normalized targetKey -> timestamp (ms) when cooldown expires
+const cooldownUntilMap = new Map<string, number>();
+const NON_STRICT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes for default rules
+const STRICT_COOLDOWN_MS = 30 * 1000; // 30 seconds after dismissal for strict rules
 
 const KNOWN_BROWSERS = [
   'chrome',
@@ -58,13 +75,6 @@ app.on('before-quit', () => {
   isQuitting = true;
 });
 
-/**
- * Re-asserts always-on-top hierarchy so Study Buddy stays above maximized
- * windows on both Windows and macOS.
- * Note: Exclusive fullscreen games (DirectX/Metal exclusive mode) and OS-level
- * security prompts (UAC / macOS Lock Screen) are rendered above 'screen-saver'
- * by the OS kernel.
- */
 function assertAlwaysOnTop(win: BrowserWindow | null): void {
   if (!win || win.isDestroyed()) return;
   win.setAlwaysOnTop(true, 'screen-saver', 1);
@@ -107,7 +117,6 @@ function createMainWindow(): BrowserWindow {
     assertAlwaysOnTop(win);
   });
 
-  // Re-assert always-on-top whenever another app takes focus
   win.on('blur', () => {
     assertAlwaysOnTop(win);
   });
@@ -157,35 +166,11 @@ export function dispatchOverlayTrigger(
 }
 
 /**
- * Queries the active foreground window using `get-windows` (if installed)
- * with a built-in native OS fallback (`powershell` on Windows, `osascript` on macOS).
+ * Queries the active foreground window using ONLY the built-in OS tools:
+ * - Windows: PowerShell Win32 API (returns PID, ProcessName, and WindowTitle)
+ * - macOS: osascript System Events (returns unix id, process name, and front window title)
  */
 async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
-  // 1. Try get-windows first
-  try {
-    const getWindowsModule = (await import('get-windows')) as {
-      activeWindow?: () => Promise<
-        | {
-            title?: string;
-            owner?: { name?: string; path?: string };
-          }
-        | undefined
-      >;
-    };
-    if (typeof getWindowsModule.activeWindow === 'function') {
-      const winInfo = await getWindowsModule.activeWindow();
-      if (winInfo) {
-        return {
-          processName: (winInfo.owner?.name ?? '').toLowerCase(),
-          windowTitle: (winInfo.title ?? '').toLowerCase(),
-        };
-      }
-    }
-  } catch {
-    // Fall back to OS command below if get-windows is not available
-  }
-
-  // 2. Built-in OS Fallback
   try {
     if (process.platform === 'win32') {
       const psScript = `
@@ -202,19 +187,29 @@ async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
         $h = [Win32Fg]::GetForegroundWindow()
         $sb = New-Object System.Text.StringBuilder 512
         [void][Win32Fg]::GetWindowText($h, $sb, 512)
-        $pidOut = 0
+        $pidOut = [uint32]0
         [void][Win32Fg]::GetWindowThreadProcessId($h, [ref]$pidOut)
-        $p = Get-Process -Id $pidOut -ErrorAction SilentlyContinue
-        Write-Output "$($p.ProcessName)|$($sb.ToString())"
+        if ($pidOut -gt 0) {
+          $p = Get-Process -Id $pidOut -ErrorAction SilentlyContinue
+          if ($null -ne $p) {
+            Write-Output "$pidOut|$($p.ProcessName)|$($sb.ToString())"
+          }
+        }
       `;
       const { stdout } = await execFileAsync(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-Command', psScript],
-        { timeout: 1500 }
+        { timeout: 1800 }
       );
-      const [procName = '', title = ''] = stdout.trim().split('|');
+      const trimmed = stdout.trim();
+      if (!trimmed) return null;
+      const [pidStr = '0', rawProc = '', ...titleParts] = trimmed.split('|');
+      const pid = parseInt(pidStr, 10) || 0;
+      const title = titleParts.join('|');
       return {
-        processName: procName.trim().toLowerCase(),
+        pid,
+        rawProcessName: rawProc.trim(),
+        processName: rawProc.trim().toLowerCase(),
         windowTitle: title.trim().toLowerCase(),
       };
     }
@@ -223,20 +218,27 @@ async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
       const osaScript = `
         tell application "System Events"
           set frontApp to first application process whose frontmost is true
+          set appPid to unix id of frontApp
           set appName to name of frontApp
           set winTitle to ""
           try
             set winTitle to name of front window of frontApp
           end try
-          return appName & "|" & winTitle
+          return (appPid as text) & "|" & appName & "|" & winTitle
         end tell
       `;
       const { stdout } = await execFileAsync('osascript', ['-e', osaScript], {
-        timeout: 1500,
+        timeout: 1800,
       });
-      const [procName = '', title = ''] = stdout.trim().split('|');
+      const trimmed = stdout.trim();
+      if (!trimmed) return null;
+      const [pidStr = '0', rawProc = '', ...titleParts] = trimmed.split('|');
+      const pid = parseInt(pidStr, 10) || 0;
+      const title = titleParts.join('|');
       return {
-        processName: procName.trim().toLowerCase(),
+        pid,
+        rawProcessName: rawProc.trim(),
+        processName: rawProc.trim().toLowerCase(),
         windowTitle: title.trim().toLowerCase(),
       };
     }
@@ -254,20 +256,34 @@ function normalizeProcessBase(input: string): string {
     .replace(/\.(exe|app)$/i, '');
 }
 
+function applyCooldownForMatch(match: CapturedMatchTarget): void {
+  const duration = match.strictBlock
+    ? STRICT_COOLDOWN_MS
+    : NON_STRICT_COOLDOWN_MS;
+  const expiresAt = Date.now() + duration;
+  cooldownUntilMap.set(match.ruleId, expiresAt);
+  cooldownUntilMap.set(match.targetKey, expiresAt);
+}
+
 /**
- * Stage 8: Polls the active foreground window every 2 seconds while a focus session is running.
- * - "app" rules match by process or executable name (case-insensitive, with or without .exe/.app).
- * - "website" rules match when the foreground window is a known browser and the window title
- *   contains the site's tag name (note: this is window title matching and only sees the active tab).
+ * Polls the active foreground window every 2 seconds while a focus session is running.
+ * Never dispatches a new intervention while an intervention overlay is already active.
  */
 async function pollForegroundWindow(): Promise<void> {
-  if (!isFocusSessionRunning || watchedRules.length === 0) return;
+  if (
+    !isFocusSessionRunning ||
+    isInterventionOverlayActive ||
+    watchedRules.length === 0
+  ) {
+    return;
+  }
 
   const fg = await getForegroundWindowInfo();
   if (!fg || !fg.processName) return;
 
-  // Ignore Study Buddy itself
+  // Never match Study Buddy / Electron itself
   if (
+    fg.pid === process.pid ||
     fg.processName.includes('electron') ||
     fg.processName.includes('study-buddy') ||
     fg.processName.includes('study buddy')
@@ -304,7 +320,7 @@ async function pollForegroundWindow(): Promise<void> {
         (domainOrProcBase.length > 2 &&
           fgBaseProcess.includes(domainOrProcBase));
     } else if (resolvedKind === 'website' && isBrowser && fg.windowTitle) {
-      // Title matching for browser tabs (can miss background tabs not reflected in window title)
+      // Browser window title matching (matches the active tab title)
       isMatch =
         fg.windowTitle.includes(tagLower) ||
         (domainOrProcBase.length > 2 &&
@@ -313,17 +329,32 @@ async function pollForegroundWindow(): Promise<void> {
 
     if (isMatch) {
       const now = Date.now();
-      if (!rule.strictBlock) {
-        const lastTriggered = nonStrictCooldowns.get(rule.id) ?? 0;
-        if (now - lastTriggered < COOLDOWN_MS) {
-          continue;
-        }
-        nonStrictCooldowns.set(rule.id, now);
+      const cooldownUntil = Math.max(
+        cooldownUntilMap.get(rule.id) ?? 0,
+        cooldownUntilMap.get(tagLower) ?? 0
+      );
+
+      if (now < cooldownUntil) {
+        continue;
       }
+
+      // Capture the exact matched foreground process so "Close <target>" acts only on it
+      lastCapturedMatch = {
+        ruleId: rule.id,
+        targetKey: tagLower,
+        targetName: cleanTagName,
+        resolvedKind,
+        strictBlock: Boolean(rule.strictBlock),
+        pid: fg.pid,
+        rawProcessName: fg.rawProcessName,
+      };
+
+      isInterventionOverlayActive = true;
+      applyCooldownForMatch(lastCapturedMatch);
 
       dispatchOverlayTrigger('intervention', {
         targetAppOrSite: cleanTagName,
-        strictMode: rule.strictBlock,
+        strictMode: Boolean(rule.strictBlock),
       });
       break;
     }
@@ -360,46 +391,139 @@ function registerIpcHandlers(): void {
   );
 
   /**
-   * Politely minimizes the active browser window (for websites) or asks a desktop app
-   * to close its window politely without force-killing processes.
+   * Tracks when an intervention overlay is shown or dismissed in the renderer.
+   * When dismissed, starts a fresh 30-second cooldown for strict rules (or 5-minute
+   * cooldown for non-strict rules) so strict overlays never immediately re-open.
+   */
+  ipcMain.on(
+    'buddy:notify-intervention-state',
+    (_event, payload: { active: boolean }) => {
+      const wasActive = isInterventionOverlayActive;
+      isInterventionOverlayActive = Boolean(payload?.active);
+
+      if (wasActive && !isInterventionOverlayActive && lastCapturedMatch) {
+        applyCooldownForMatch(lastCapturedMatch);
+      }
+    }
+  );
+
+  /**
+   * Safely closes or minimizes ONLY the captured process that triggered the match:
+   * - Desktop app rule: politely asks the captured process to close its main window.
+   * - Website rule: minimizes the captured browser window without closing it.
+   * - Never interpolates user strings into scripts (uses env vars on Windows and argv on macOS).
    */
   ipcMain.handle(
     'buddy:close-or-minimize-target',
-    async (
-      _event,
-      payload: { targetName: string }
-    ): Promise<{ ok: boolean }> => {
-      const target = (payload?.targetName ?? '').trim();
-      if (!target) return { ok: false };
+    async (): Promise<{ ok: boolean }> => {
+      const captured = lastCapturedMatch;
+      if (!captured) {
+        return { ok: false };
+      }
+
+      // Guard: never close or minimize Study Buddy / Electron itself
+      const procLower = captured.rawProcessName.toLowerCase();
+      if (
+        captured.pid === process.pid ||
+        procLower === 'electron' ||
+        procLower.includes('study-buddy') ||
+        procLower.includes('study buddy')
+      ) {
+        return { ok: false };
+      }
+
+      // Refresh cooldown from the moment the user clicks Close
+      applyCooldownForMatch(captured);
 
       try {
-        if (process.platform === 'win32') {
-          const ps = `
-            $procs = Get-Process | Where-Object { $_.MainWindowTitle -like "*${target.replace(
-              /"/g,
-              ''
-            )}*" -or $_.ProcessName -like "*${target.replace(/"/g, '')}*" }
-            foreach ($p in $procs) {
-              $null = $p.CloseMainWindow()
+        if (process.platform === 'win32' && captured.pid > 0) {
+          const psScript = `
+            Add-Type @"
+              using System;
+              using System.Runtime.InteropServices;
+              public class Win32WindowAction {
+                [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+              }
+"@
+            $targetPid = [int]$env:SB_TARGET_PID
+            $mode = $env:SB_TARGET_MODE
+            $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+            if ($null -ne $p -and $p.MainWindowHandle -ne [IntPtr]::Zero) {
+              if ($mode -eq "website") {
+                # 6 = SW_MINIMIZE (minimize browser window; never close it)
+                [void][Win32WindowAction]::ShowWindowAsync($p.MainWindowHandle, 6)
+              } else {
+                # Politely ask the desktop app to close its main window (no force-kill)
+                [void]$p.CloseMainWindow()
+              }
             }
           `;
           await execFileAsync(
             'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-Command', ps],
-            { timeout: 1500 }
+            ['-NoProfile', '-NonInteractive', '-Command', psScript],
+            {
+              timeout: 2000,
+              env: {
+                ...process.env,
+                SB_TARGET_PID: String(captured.pid),
+                SB_TARGET_MODE: captured.resolvedKind,
+              },
+            }
           );
-        } else if (process.platform === 'darwin') {
-          const osa = `
-            tell application "System Events"
-              set frontApp to first application process whose frontmost is true
-              try
-                set value of attribute "AXMinimized" of window 1 of frontApp to true
-              end try
-            end tell
-          `;
-          await execFileAsync('osascript', ['-e', osa], { timeout: 1500 });
+          return { ok: true };
         }
-        return { ok: true };
+
+        if (process.platform === 'darwin' && captured.rawProcessName) {
+          const osaScript = `
+            on run argv
+              set targetAppName to item 1 of argv
+              set targetMode to item 2 of argv
+              if targetAppName is "" or targetAppName is "Electron" or targetAppName is "Study Buddy" then
+                return
+              end if
+              if targetMode is "app" then
+                try
+                  tell application targetAppName
+                    if (count of windows) > 0 then
+                      close front window
+                    end if
+                  end tell
+                end try
+              else
+                try
+                  tell application targetAppName
+                    if (count of windows) > 0 then
+                      set miniaturized of front window to true
+                    end if
+                  end tell
+                on error
+                  try
+                    tell application "System Events"
+                      tell process targetAppName
+                        if (count of windows) > 0 then
+                          set value of attribute "AXMinimized" of window 1 to true
+                        end if
+                      end tell
+                    end tell
+                  end try
+                end try
+              end if
+            end run
+          `;
+          await execFileAsync(
+            'osascript',
+            [
+              '-e',
+              osaScript,
+              captured.rawProcessName,
+              captured.resolvedKind,
+            ],
+            { timeout: 2000 }
+          );
+          return { ok: true };
+        }
+
+        return { ok: false };
       } catch {
         return { ok: false };
       }
@@ -479,12 +603,10 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   createMainWindow();
 
-  // Re-assert always-on-top whenever displays or workspaces change
   screen.on('display-added', () => assertAlwaysOnTop(mainWindow));
   screen.on('display-removed', () => assertAlwaysOnTop(mainWindow));
   screen.on('display-metrics-changed', () => assertAlwaysOnTop(mainWindow));
 
-  // Poll foreground window every 2 seconds for Stage 8 App Rules
   setInterval(() => {
     void pollForegroundWindow();
   }, 2000);

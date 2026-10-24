@@ -18,11 +18,11 @@ function formatTimerMMSS(seconds: number): string {
 
 /**
  * Ensures intervention targets resolve to a single specific application or site name
- * (e.g., "YouTube", "Reddit", "Discord") rather than a grouped slash list.
+ * (defaulting to "YouTube" if unspecified).
  */
 function resolveSingleTargetName(rawTarget?: string): string {
   if (!rawTarget || !rawTarget.trim()) {
-    return 'Discord';
+    return 'YouTube';
   }
   const firstSegment = rawTarget.split('/')[0]?.trim();
   return firstSegment || rawTarget.trim();
@@ -50,12 +50,10 @@ export const CenterOverlay: React.FC = () => {
   const [isPopoverOpen, setIsPopoverOpen] = useState<boolean>(false);
   const popoverContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Close the increment popover whenever the overlay switches
   useEffect(() => {
     setIsPopoverOpen(false);
   }, [activeOverlay?.id, activeOverlay?.kind]);
 
-  // Close the popover when clicking outside of the '+' trigger/menu
   useEffect(() => {
     function handleOutsideMouseDown(event: MouseEvent) {
       if (
@@ -114,15 +112,12 @@ export const CenterOverlay: React.FC = () => {
         }
         className="relative w-[420px] rounded-[24px] bg-[#221D33] border border-[#342D4B] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] text-white select-none"
       >
-        {/* Interactive Vector Chibi Mascot */}
         <ChibiCompanion mode={currentOverlayMode} size="lg" />
 
-        {/* Buddy Name */}
         <h2 className="mt-4 text-center text-[20px] font-bold tracking-tight text-white">
           {buddyName}
         </h2>
 
-        {/* Speech Bubble with Top Center Pointer */}
         <div className="relative mt-3.5">
           <div
             className="mx-auto h-0 w-0"
@@ -159,10 +154,8 @@ export const CenterOverlay: React.FC = () => {
           </div>
         </div>
 
-        {/* Countdown Timer Pill & '+' Increment Popover */}
         {isTimedOverlay && (
           <div className="mt-6 flex items-center justify-center gap-2.5">
-            {/* MM:SS Timer Pill */}
             <div
               className={`flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12.5px] font-medium transition-colors ${
                 isTimerCompleted
@@ -191,7 +184,6 @@ export const CenterOverlay: React.FC = () => {
               </span>
             </div>
 
-            {/* '+' Button & Increment Popover Menu */}
             <div className="relative" ref={popoverContainerRef}>
               <button
                 type="button"
@@ -237,7 +229,6 @@ export const CenterOverlay: React.FC = () => {
           </div>
         )}
 
-        {/* Primary Action Buttons */}
         <div className="mt-6">
           {kind === 'overlay_hydration' && (
             <button
