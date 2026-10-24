@@ -104,7 +104,7 @@ export const CenterOverlay: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center transition-opacity duration-300"
+      className="fixed inset-0 z-40 flex items-center justify-center transition-opacity duration-150"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
       aria-modal="true"
       role="dialog"

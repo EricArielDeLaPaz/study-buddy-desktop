@@ -14,7 +14,7 @@ import {
   ScratchpadNote,
   TimerConfig,
 } from '../types/buddy';
-import { playChime } from '../utils/audio';
+import { playChime, preloadAudioChimes } from '../utils/audio';
 import {
   getLocalDateKey,
   recordDailyProgressDelta,
@@ -203,6 +203,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [sessionStats, setSessionStats] = useState<SessionStats>(
     loadInitialSessionStats
   );
+
+  // Stage P6: Preload alert chime audio when the app starts
+  useEffect(() => {
+    preloadAudioChimes();
+    const handleFirstInteraction = () => {
+      preloadAudioChimes();
+    };
+    window.addEventListener('pointerdown', handleFirstInteraction, {
+      once: true,
+    });
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+    };
+  }, []);
 
   useEffect(() => {
     try {

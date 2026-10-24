@@ -3,6 +3,7 @@
 export type ChimeType = 'gentle_bell' | 'break_start' | 'alert';
 
 let sharedAudioContext: AudioContext | null = null;
+let isAudioPreloaded = false;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -28,6 +29,28 @@ function getAudioContext(): AudioContext | null {
 }
 
 /**
+ * Stage P6: Preloads and warms up the Web Audio API context and oscillator pipeline
+ * when the app starts so the alert chime plays instantaneously when a nudge arrives.
+ */
+export function preloadAudioChimes(): void {
+  if (isAudioPreloaded || typeof window === 'undefined') return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    // Schedule a silent 1-frame warm-up buffer so the audio output thread is hot
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    isAudioPreloaded = true;
+  } catch {
+    // Ignore if audio context is not ready yet
+  }
+}
+
+/**
  * Helper to schedule an oscillator tone with smooth attack and exponential release.
  */
 function scheduleTone(
@@ -44,23 +67,19 @@ function scheduleTone(
   osc.type = type;
   osc.frequency.setValueAtTime(frequency, startTime);
 
-  // Smooth envelope to prevent speaker clicks
   gain.gain.setValueAtTime(0.0001, startTime);
-  gain.gain.linearRampToValueAtTime(peakGain, startTime + 0.02);
+  gain.gain.linearRampToValueAtTime(peakGain, startTime + 0.012);
   gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
   osc.connect(gain);
   gain.connect(ctx.destination);
 
   osc.start(startTime);
-  osc.stop(startTime + duration + 0.02);
+  osc.stop(startTime + duration + 0.015);
 }
 
 /**
  * Synthesizes an audio cue using the browser's native Web Audio API.
- * - `gentle_bell`: Warm harmonic two-note chime when hydration/bathroom overlays appear.
- * - `break_start`: Upbeat three-note ascending arpeggio when a focus block finishes.
- * - `alert`: Two-pulse attention nudge when a distraction intervention triggers.
  */
 export function playChime(type: ChimeType): void {
   try {
@@ -71,7 +90,6 @@ export function playChime(type: ChimeType): void {
 
     switch (type) {
       case 'gentle_bell': {
-        // Warm C5 -> G5 bell with soft triangle overtone
         scheduleTone(ctx, 523.25, now, 0.55, 'sine', 0.09); // C5
         scheduleTone(ctx, 1046.5, now, 0.35, 'triangle', 0.03); // C6 harmonic
         scheduleTone(ctx, 783.99, now + 0.16, 0.75, 'sine', 0.1); // G5
@@ -80,7 +98,6 @@ export function playChime(type: ChimeType): void {
       }
 
       case 'break_start': {
-        // Ascending D5 -> F#5 -> A5 major triad chime
         scheduleTone(ctx, 587.33, now, 0.35, 'triangle', 0.08); // D5
         scheduleTone(ctx, 739.99, now + 0.12, 0.4, 'triangle', 0.08); // F#5
         scheduleTone(ctx, 880.0, now + 0.24, 0.65, 'sine', 0.11); // A5
@@ -88,7 +105,6 @@ export function playChime(type: ChimeType): void {
       }
 
       case 'alert': {
-        // Distinct double-nudge tone (E5 -> C5) for distraction intervention
         scheduleTone(ctx, 659.25, now, 0.22, 'triangle', 0.11); // E5
         scheduleTone(ctx, 523.25, now + 0.2, 0.38, 'triangle', 0.11); // C5
         break;

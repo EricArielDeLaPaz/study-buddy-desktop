@@ -9,6 +9,8 @@ export interface OverlayTriggerPayload {
   targetKind?: 'website' | 'app';
   strictMode?: boolean;
   message?: string;
+  dispatchedAtEpochMs?: number;
+  mainDetectToDispatchMs?: number;
 }
 
 export interface ExportMarkdownResult {
@@ -27,9 +29,6 @@ export interface WatcherAppRule {
 }
 
 export const electronAPI = {
-  /**
-   * Read-only OS platform identifier ('darwin', 'win32', 'linux') for native window controls.
-   */
   platform: process.platform,
 
   setIgnoreMouseEvents: (ignore: boolean, forward?: boolean): void => {
@@ -78,9 +77,6 @@ export const electronAPI = {
     return ipcRenderer.invoke('buddy:close-or-minimize-target', { targetName });
   },
 
-  /**
-   * Stage P2: Quits the Electron application process cleanly.
-   */
   quitApp: (): void => {
     ipcRenderer.send('buddy:quit-app');
   },

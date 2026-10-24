@@ -8,6 +8,8 @@ export interface OverlayTriggerPayload {
   targetKind?: 'website' | 'app';
   strictMode?: boolean;
   message?: string;
+  dispatchedAtEpochMs?: number;
+  mainDetectToDispatchMs?: number;
 }
 
 export interface ExportMarkdownResult {

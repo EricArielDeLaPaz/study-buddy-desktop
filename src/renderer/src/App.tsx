@@ -33,6 +33,9 @@ import type {
   OverlayTriggerPayload,
 } from '../../preload/index.d';
 
+const IS_DEV_MODE =
+  typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+
 const TAB_LABELS: Record<NavTabId, string> = {
   session: 'Session',
   reminders: 'Reminders',
@@ -173,6 +176,14 @@ const StudyBuddyViewport: React.FC = () => {
     useState<boolean>(false);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
 
+  // Ref for measuring renderer trigger-received -> overlay-visible timing in dev
+  const pendingNudgeTimingRef = useRef<{
+    receivedPerfMs: number;
+    mainDetectToDispatchMs?: number;
+    dispatchedAtEpochMs?: number;
+    targetName: string;
+  } | null>(null);
+
   const [appRules, setAppRules] = useState<AppRuleItem[]>(() =>
     loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, [])
   );
@@ -244,7 +255,6 @@ const StudyBuddyViewport: React.FC = () => {
     [setInteractiveRegionHovered, syncWindowClickThrough]
   );
 
-  // Stage P2: Toggle Dashboard between filling the screen's usable area and its previous rect
   const handleToggleDashboardFullScreen = useCallback(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
@@ -466,19 +476,45 @@ const StudyBuddyViewport: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
+  // Stage P6: Synchronous immediate overlay activation (zero setTimeout delay)
   const activateOverlayImmediately = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
-      if (activeOverlay !== null) {
-        dismissActiveOverlay('manual_dismiss');
-        window.setTimeout(() => {
-          triggerOverlay(kind, options);
-        }, 0);
-      } else {
-        triggerOverlay(kind, options);
-      }
+      triggerOverlay(kind, options);
     },
-    [activeOverlay, dismissActiveOverlay, triggerOverlay]
+    [triggerOverlay]
   );
+
+  // Stage P6 Dev Timing Log: Measure "trigger received" -> "overlay visible" on next paint frame
+  useEffect(() => {
+    if (
+      !IS_DEV_MODE ||
+      !activeOverlay ||
+      activeOverlay.kind !== 'overlay_intervention' ||
+      !pendingNudgeTimingRef.current
+    ) {
+      return;
+    }
+
+    const timing = pendingNudgeTimingRef.current;
+    pendingNudgeTimingRef.current = null;
+
+    requestAnimationFrame(() => {
+      const rendererMs = Math.max(
+        0,
+        Math.round(performance.now() - timing.receivedPerfMs)
+      );
+      const ipcMs =
+        typeof timing.dispatchedAtEpochMs === 'number'
+          ? Math.max(0, Date.now() - timing.dispatchedAtEpochMs - rendererMs)
+          : 0;
+      const mainMs = timing.mainDetectToDispatchMs ?? 0;
+      const totalMs = mainMs + ipcMs + rendererMs;
+
+      console.info(
+        `[NudgeTiming][Summary] target="${timing.targetName}" | mainDetectToDispatch=${mainMs}ms | triggerReceivedToVisible=${rendererMs}ms | total=${totalMs}ms`
+      );
+    });
+  }, [activeOverlay]);
 
   useEffect(() => {
     if (isDashboardVisible) {
@@ -510,8 +546,17 @@ const StudyBuddyViewport: React.FC = () => {
             message: payload?.message,
           });
         } else if (type === 'intervention') {
+          const targetName = payload?.targetAppOrSite ?? 'YouTube';
+          if (IS_DEV_MODE) {
+            pendingNudgeTimingRef.current = {
+              receivedPerfMs: performance.now(),
+              mainDetectToDispatchMs: payload?.mainDetectToDispatchMs,
+              dispatchedAtEpochMs: payload?.dispatchedAtEpochMs,
+              targetName,
+            };
+          }
           activateOverlayImmediately('overlay_intervention', {
-            targetAppOrSite: payload?.targetAppOrSite ?? 'YouTube',
+            targetAppOrSite: targetName,
             targetKind: payload?.targetKind ?? 'website',
             strictMode: payload?.strictMode ?? false,
             message: payload?.message,
@@ -689,14 +734,14 @@ const StudyBuddyViewport: React.FC = () => {
         />
       </div>
 
-      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal (150ms fast fade) */}
       {activeOverlay !== null && (
         <div
           style={{
             zIndex: Z_LAYERS.OVERLAY,
             backgroundColor: 'rgba(0,0,0,0.45)',
           }}
-          className="fixed inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300"
+          className="fixed inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150"
         >
           <div
             className="pointer-events-auto [&>div]:!bg-transparent [&>div]:pointer-events-none [&>div>div]:pointer-events-auto"
@@ -824,7 +869,9 @@ const StudyBuddyViewport: React.FC = () => {
                     ? 'bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 cursor-pointer'
                     : 'bg-zinc-800/40 text-zinc-500 cursor-not-allowed'
                 }`}
-              />
+              >
+                Dismiss
+              </button>
             </>
           )}
         </div>

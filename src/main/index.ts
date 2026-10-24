@@ -2,7 +2,7 @@
 import { app, shell, BrowserWindow, ipcMain, screen, dialog } from 'electron';
 import { join } from 'path';
 import { writeFile, readFile } from 'fs/promises';
-import { execFile } from 'child_process';
+import { execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -15,6 +15,8 @@ export interface OverlayTriggerPayload {
   targetKind?: 'website' | 'app';
   strictMode?: boolean;
   message?: string;
+  dispatchedAtEpochMs?: number;
+  mainDetectToDispatchMs?: number;
 }
 
 interface WatcherAppRule {
@@ -45,13 +47,38 @@ interface CapturedMatchTarget {
   bundleId: string;
 }
 
-let mainWindow: BrowserWindow | null = null;
+interface HelperJsonMessage {
+  type: 'change' | 'hb' | 'perm_error';
+  pid?: number;
+  rawProcessName?: string;
+  bundleId?: string;
+  windowTitle?: string;
+  message?: string;
+}
 
-// Stage P1 Watcher & Cooldown State
+const IS_DEV =
+  Boolean(process.env['ELECTRON_RENDERER_URL']) || !app.isPackaged;
+
+let mainWindow: BrowserWindow | null = null;
+let isAppQuitting = false;
+
+// Stage P6 Long-Lived Foreground Watcher State
 let isFocusSessionRunning = false;
 let isInterventionOverlayActive = false;
 let watchedRules: WatcherAppRule[] = [];
 let lastCapturedMatch: CapturedMatchTarget | null = null;
+let latestForegroundWindow: ForegroundWindowInfo | null = null;
+
+let watcherChild: ChildProcess | null = null;
+let watcherStdoutBuffer = '';
+let lastHelperResponseAt = 0;
+let watcherWatchdogTimer: NodeJS.Timeout | null = null;
+let helperRestartTimestamps: number[] = [];
+let isStoppingHelperIntentionally = false;
+let macAutomationPermissionNoticeLogged = false;
+
+const WATCHER_HEARTBEAT_TIMEOUT_MS = 5000; // 5 seconds
+const MAX_RESTARTS_PER_MINUTE = 3;
 
 // Maps ruleId and normalized targetKey -> timestamp (ms) when cooldown expires
 const cooldownUntilMap = new Map<string, number>();
@@ -123,7 +150,6 @@ function createMainWindow(): BrowserWindow {
     assertAlwaysOnTop(win);
   });
 
-  // Stage P2: OS-level close requests (Alt+F4, Cmd+Q) really quit the app.
   win.on('closed', () => {
     if (mainWindow === win) {
       mainWindow = null;
@@ -154,98 +180,6 @@ export function dispatchOverlayTrigger(
   mainWindow.webContents.send('buddy:trigger-overlay', { type, payload });
 }
 
-/**
- * Queries the active foreground window using ONLY built-in OS tools:
- * - Windows: PowerShell Win32 API (returns PID, ProcessName, and WindowTitle)
- * - macOS: osascript System Events (returns unix id, process name, bundle identifier, and front window title)
- */
-async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
-  try {
-    if (process.platform === 'win32') {
-      const psScript = `
-        Add-Type @"
-          using System;
-          using System.Runtime.InteropServices;
-          using System.Text;
-          public class Win32Fg {
-            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-            [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-          }
-"@
-        $h = [Win32Fg]::GetForegroundWindow()
-        $sb = New-Object System.Text.StringBuilder 512
-        [void][Win32Fg]::GetWindowText($h, $sb, 512)
-        $pidOut = [uint32]0
-        [void][Win32Fg]::GetWindowThreadProcessId($h, [ref]$pidOut)
-        if ($pidOut -gt 0) {
-          $p = Get-Process -Id $pidOut -ErrorAction SilentlyContinue
-          if ($null -ne $p) {
-            Write-Output "$pidOut|$($p.ProcessName)||$($sb.ToString())"
-          }
-        }
-      `;
-      const { stdout } = await execFileAsync(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', psScript],
-        { timeout: 1800 }
-      );
-      const trimmed = stdout.trim();
-      if (!trimmed) return null;
-      const [pidStr = '0', rawProc = '', bundleId = '', ...titleParts] =
-        trimmed.split('|');
-      const pid = parseInt(pidStr, 10) || 0;
-      const title = titleParts.join('|');
-      return {
-        pid,
-        rawProcessName: rawProc.trim(),
-        bundleId: bundleId.trim(),
-        processName: rawProc.trim().toLowerCase(),
-        windowTitle: title.trim().toLowerCase(),
-      };
-    }
-
-    if (process.platform === 'darwin') {
-      const osaScript = `
-        tell application "System Events"
-          set frontApp to first application process whose frontmost is true
-          set appPid to unix id of frontApp
-          set appName to name of frontApp
-          set appBundle to ""
-          try
-            set appBundle to bundle identifier of frontApp
-          end try
-          set winTitle to ""
-          try
-            set winTitle to name of front window of frontApp
-          end try
-          return (appPid as text) & "|" & appName & "|" & appBundle & "|" & winTitle
-        end tell
-      `;
-      const { stdout } = await execFileAsync('osascript', ['-e', osaScript], {
-        timeout: 1800,
-      });
-      const trimmed = stdout.trim();
-      if (!trimmed) return null;
-      const [pidStr = '0', rawProc = '', bundleId = '', ...titleParts] =
-        trimmed.split('|');
-      const pid = parseInt(pidStr, 10) || 0;
-      const title = titleParts.join('|');
-      return {
-        pid,
-        rawProcessName: rawProc.trim(),
-        bundleId: bundleId.trim(),
-        processName: rawProc.trim().toLowerCase(),
-        windowTitle: title.trim().toLowerCase(),
-      };
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
 function normalizeProcessBase(input: string): string {
   return input
     .trim()
@@ -263,10 +197,14 @@ function applyCooldownForMatch(match: CapturedMatchTarget): void {
 }
 
 /**
- * Polls the active foreground window every 2 seconds while a focus session is running.
- * Never dispatches a new intervention while an intervention overlay is already active.
+ * Evaluates a foreground window change against the user's active App Rules.
+ * Runs immediately when a foreground change line arrives from the helper,
+ * when a focus session starts, or when the rules list changes.
  */
-async function pollForegroundWindow(): Promise<void> {
+function evaluateForegroundWindow(
+  fg: ForegroundWindowInfo,
+  changeDetectedPerfMs: number
+): void {
   if (
     !isFocusSessionRunning ||
     isInterventionOverlayActive ||
@@ -275,7 +213,6 @@ async function pollForegroundWindow(): Promise<void> {
     return;
   }
 
-  const fg = await getForegroundWindowInfo();
   if (!fg || !fg.processName) return;
 
   // Never match Study Buddy / Electron itself
@@ -316,8 +253,11 @@ async function pollForegroundWindow(): Promise<void> {
         fgBaseProcess === tagLower ||
         fgBaseProcess === domainOrProcBase ||
         (domainOrProcBase.length > 2 &&
-          fgBaseProcess.includes(domainOrProcBase));
+          fgBaseProcess.includes(domainOrProcBase)) ||
+        (fg.bundleId.length > 0 &&
+          fg.bundleId.toLowerCase().includes(domainOrProcBase));
     } else if (resolvedKind === 'website' && isBrowser && fg.windowTitle) {
+      // Browser window title matching (matches the active tab title)
       isMatch =
         fg.windowTitle.includes(tagLower) ||
         (domainOrProcBase.length > 2 &&
@@ -335,7 +275,6 @@ async function pollForegroundWindow(): Promise<void> {
         continue;
       }
 
-      // Capture the exact matched foreground process & bundleId at match time
       lastCapturedMatch = {
         ruleId: rule.id,
         targetKey: tagLower,
@@ -350,13 +289,362 @@ async function pollForegroundWindow(): Promise<void> {
       isInterventionOverlayActive = true;
       applyCooldownForMatch(lastCapturedMatch);
 
+      const mainDetectToDispatchMs = Math.max(
+        0,
+        Math.round(performance.now() - changeDetectedPerfMs)
+      );
+
+      if (IS_DEV) {
+        console.info(
+          `[NudgeTiming][Main] foreground change detected -> overlay dispatched in ${mainDetectToDispatchMs}ms (target: "${cleanTagName}", kind: ${resolvedKind})`
+        );
+      }
+
       dispatchOverlayTrigger('intervention', {
         targetAppOrSite: cleanTagName,
         targetKind: resolvedKind,
         strictMode: Boolean(rule.strictBlock),
+        dispatchedAtEpochMs: Date.now(),
+        mainDetectToDispatchMs,
       });
       break;
     }
+  }
+}
+
+/**
+ * Builds the static Windows PowerShell script that compiles the Win32 helper ONCE,
+ * checks the foreground window every 300 ms, and prints a JSON line ONLY on change
+ * (plus a lightweight heartbeat every ~1.8s).
+ */
+function getWindowsWatcherScript(): string {
+  return `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class Win32FgStream {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+}
+"@
+
+$lastPid = [uint32]0
+$lastTitle = $null
+$ticks = 0
+
+while ($true) {
+  try {
+    $h = [Win32FgStream]::GetForegroundWindow()
+    if ($h -ne [IntPtr]::Zero) {
+      $sb = New-Object System.Text.StringBuilder 512
+      [void][Win32FgStream]::GetWindowText($h, $sb, 512)
+      $title = $sb.ToString()
+      $pidOut = [uint32]0
+      [void][Win32FgStream]::GetWindowThreadProcessId($h, [ref]$pidOut)
+      if ($pidOut -gt 0 -and ($pidOut -ne $lastPid -or $title -cne $lastTitle)) {
+        $p = Get-Process -Id $pidOut -ErrorAction SilentlyContinue
+        if ($null -ne $p) {
+          $lastPid = $pidOut
+          $lastTitle = $title
+          $payload = @{
+            type = "change"
+            pid = [int]$pidOut
+            rawProcessName = [string]$p.ProcessName
+            bundleId = ""
+            windowTitle = [string]$title
+          }
+          Write-Output ($payload | ConvertTo-Json -Compress)
+        }
+      }
+    }
+  } catch {
+  }
+  $ticks++
+  if ($ticks -ge 6) {
+    $ticks = 0
+    Write-Output '{"type":"hb"}'
+  }
+  [System.Console]::Out.Flush()
+  Start-Sleep -Milliseconds 300
+}
+`;
+}
+
+/**
+ * Builds the static macOS JXA (`osascript -l JavaScript`) script that loops every 300 ms
+ * and writes one unbuffered UTF-8 JSON line to stdout ONLY when the frontmost app or its
+ * front window title changes (plus a heartbeat every ~1.8s).
+ */
+function getMacJxaWatcherScript(): string {
+  return `
+ObjC.import('Foundation');
+
+function emitJson(obj) {
+  var str = JSON.stringify(obj) + "\\n";
+  var nsStr = $(str);
+  var data = nsStr.dataUsingEncoding($.NSUTF8StringEncoding);
+  $.NSFileHandle.fileHandleWithStandardOutput.writeData(data);
+}
+
+var se = Application('System Events');
+var lastPid = -1;
+var lastApp = null;
+var lastTitle = null;
+var ticks = 0;
+var permErrorReported = false;
+
+while (true) {
+  try {
+    var frontProcs = se.applicationProcesses.whose({ frontmost: true });
+    if (frontProcs.length > 0) {
+      var proc = frontProcs[0];
+      var pid = 0;
+      var appName = "";
+      var bundleId = "";
+      var winTitle = "";
+      try { pid = proc.unixId(); } catch (e) {}
+      try { appName = proc.name() || ""; } catch (e) {}
+      try { bundleId = proc.bundleIdentifier() || ""; } catch (e) {}
+      try {
+        if (proc.windows.length > 0) {
+          winTitle = proc.windows[0].name() || "";
+        }
+      } catch (e) {}
+
+      if (pid !== lastPid || appName !== lastApp || winTitle !== lastTitle) {
+        lastPid = pid;
+        lastApp = appName;
+        lastTitle = winTitle;
+        emitJson({
+          type: "change",
+          pid: pid,
+          rawProcessName: appName,
+          bundleId: bundleId,
+          windowTitle: winTitle
+        });
+      }
+      permErrorReported = false;
+    }
+  } catch (err) {
+    if (!permErrorReported) {
+      permErrorReported = true;
+      emitJson({
+        type: "perm_error",
+        message: String(err)
+      });
+    }
+    // Do not loop tightly on an Automation permission error
+    delay(2.7);
+  }
+
+  ticks++;
+  if (ticks >= 6) {
+    ticks = 0;
+    emitJson({ type: "hb" });
+  }
+  delay(0.3);
+}
+`;
+}
+
+function handleHelperStdoutChunk(chunk: Buffer | string): void {
+  lastHelperResponseAt = Date.now();
+  watcherStdoutBuffer += chunk.toString();
+
+  let newlineIndex = watcherStdoutBuffer.indexOf('\n');
+  while (newlineIndex !== -1) {
+    const rawLine = watcherStdoutBuffer.slice(0, newlineIndex).trim();
+    watcherStdoutBuffer = watcherStdoutBuffer.slice(newlineIndex + 1);
+
+    if (rawLine.startsWith('{') && rawLine.endsWith('}')) {
+      const changeDetectedPerfMs = performance.now();
+      try {
+        const parsed = JSON.parse(rawLine) as HelperJsonMessage;
+        if (parsed.type === 'change') {
+          const rawProc = (parsed.rawProcessName ?? '').trim();
+          const fgInfo: ForegroundWindowInfo = {
+            pid: Number(parsed.pid) || 0,
+            rawProcessName: rawProc,
+            bundleId: (parsed.bundleId ?? '').trim(),
+            processName: rawProc.toLowerCase(),
+            windowTitle: (parsed.windowTitle ?? '').trim().toLowerCase(),
+          };
+          latestForegroundWindow = fgInfo;
+          evaluateForegroundWindow(fgInfo, changeDetectedPerfMs);
+        } else if (
+          parsed.type === 'perm_error' &&
+          !macAutomationPermissionNoticeLogged
+        ) {
+          macAutomationPermissionNoticeLogged = true;
+          console.warn(
+            '[StudyBuddy] macOS System Events permission is required to read active window titles. App continues running normally.'
+          );
+        }
+      } catch {
+        // Ignore malformed JSON line
+      }
+    }
+
+    newlineIndex = watcherStdoutBuffer.indexOf('\n');
+  }
+}
+
+/**
+ * Stops the long-lived foreground watcher process and clears the watchdog timer.
+ * Guarantees no orphan powershell.exe or osascript processes remain.
+ */
+function stopForegroundWatcherHelper(): void {
+  isStoppingHelperIntentionally = true;
+
+  if (watcherWatchdogTimer) {
+    clearInterval(watcherWatchdogTimer);
+    watcherWatchdogTimer = null;
+  }
+
+  if (watcherChild) {
+    const procToKill = watcherChild;
+    watcherChild = null;
+    watcherStdoutBuffer = '';
+    try {
+      procToKill.stdout?.removeAllListeners();
+      procToKill.stderr?.removeAllListeners();
+      procToKill.removeAllListeners();
+      procToKill.kill();
+    } catch {
+      // Ignore if process already exited
+    }
+  }
+
+  isStoppingHelperIntentionally = false;
+}
+
+function scheduleHelperRestart(reason: string): void {
+  stopForegroundWatcherHelper();
+
+  if (!isFocusSessionRunning || isAppQuitting) {
+    return;
+  }
+
+  const now = Date.now();
+  helperRestartTimestamps = helperRestartTimestamps.filter(
+    (ts) => now - ts < 60000
+  );
+
+  if (helperRestartTimestamps.length >= MAX_RESTARTS_PER_MINUTE) {
+    console.error(
+      `[StudyBuddy] Foreground watcher helper exceeded max ${MAX_RESTARTS_PER_MINUTE} restarts per minute (${reason}). Stopping watcher.`
+    );
+    return;
+  }
+
+  helperRestartTimestamps.push(now);
+  if (IS_DEV) {
+    console.warn(
+      `[StudyBuddy] Restarting foreground watcher helper (${reason}) [attempt ${helperRestartTimestamps.length}/${MAX_RESTARTS_PER_MINUTE} in last 60s]`
+    );
+  }
+
+  startForegroundWatcherHelper();
+}
+
+/**
+ * Starts the single long-lived foreground watcher process on Windows or macOS.
+ */
+function startForegroundWatcherHelper(): void {
+  if (watcherChild || !isFocusSessionRunning || isAppQuitting) {
+    return;
+  }
+
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+    return;
+  }
+
+  watcherStdoutBuffer = '';
+  lastHelperResponseAt = Date.now();
+
+  try {
+    if (process.platform === 'win32') {
+      const encodedCommand = Buffer.from(
+        getWindowsWatcherScript(),
+        'utf16le'
+      ).toString('base64');
+
+      watcherChild = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-WindowStyle',
+          'Hidden',
+          '-EncodedCommand',
+          encodedCommand,
+        ],
+        {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+    } else if (process.platform === 'darwin') {
+      watcherChild = spawn(
+        'osascript',
+        ['-l', 'JavaScript', '-e', getMacJxaWatcherScript()],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+    }
+
+    if (!watcherChild) return;
+
+    watcherChild.stdout?.on('data', handleHelperStdoutChunk);
+    watcherChild.stderr?.on('data', () => {
+      lastHelperResponseAt = Date.now();
+    });
+
+    watcherChild.on('exit', () => {
+      watcherChild = null;
+      if (
+        !isStoppingHelperIntentionally &&
+        isFocusSessionRunning &&
+        !isAppQuitting
+      ) {
+        scheduleHelperRestart('process exited');
+      }
+    });
+
+    watcherChild.on('error', (err) => {
+      watcherChild = null;
+      if (
+        !isStoppingHelperIntentionally &&
+        isFocusSessionRunning &&
+        !isAppQuitting
+      ) {
+        scheduleHelperRestart(`spawn error: ${err.message}`);
+      }
+    });
+
+    // 5-second heartbeat watchdog
+    if (watcherWatchdogTimer) {
+      clearInterval(watcherWatchdogTimer);
+    }
+    watcherWatchdogTimer = setInterval(() => {
+      if (!isFocusSessionRunning || isAppQuitting) {
+        stopForegroundWatcherHelper();
+        return;
+      }
+      if (
+        watcherChild &&
+        Date.now() - lastHelperResponseAt > WATCHER_HEARTBEAT_TIMEOUT_MS
+      ) {
+        scheduleHelperRestart('heartbeat timeout > 5s');
+      }
+    }, 1000);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'unknown error';
+    scheduleHelperRestart(`startup exception: ${msg}`);
   }
 }
 
@@ -378,14 +666,33 @@ function registerIpcHandlers(): void {
     }
   );
 
+  /**
+   * Stage P6: Starts/stops the single long-lived helper when a session starts/ends,
+   * and runs an immediate check when a session starts or when the rules list changes.
+   */
   ipcMain.on(
     'buddy:sync-watcher-state',
     (
       _event,
       payload: { isFocusing: boolean; rules: WatcherAppRule[] }
     ) => {
+      const wasFocusing = isFocusSessionRunning;
       isFocusSessionRunning = Boolean(payload?.isFocusing);
       watchedRules = Array.isArray(payload?.rules) ? payload.rules : [];
+
+      if (isFocusSessionRunning) {
+        if (!wasFocusing) {
+          helperRestartTimestamps = [];
+        }
+        startForegroundWatcherHelper();
+
+        // Run an immediate check against the latest known foreground window
+        if (latestForegroundWindow) {
+          evaluateForegroundWindow(latestForegroundWindow, performance.now());
+        }
+      } else {
+        stopForegroundWatcherHelper();
+      }
     }
   );
 
@@ -401,24 +708,12 @@ function registerIpcHandlers(): void {
     }
   );
 
-  /**
-   * Stage P2: Real Quit IPC handler for the Close window control.
-   */
   ipcMain.on('buddy:quit-app', () => {
+    isAppQuitting = true;
+    stopForegroundWatcherHelper();
     app.quit();
   });
 
-  /**
-   * Stage P1: Acts ONLY on the captured foreground process from match time:
-   * - Desktop app rule ("Close <app>"):
-   *   - Windows: calls CloseMainWindow() on the captured PID. If still running after 3s,
-   *     retries CloseMainWindow() once. Never force-kills. (Apps with unsaved changes
-   *     show their "Save changes?" prompt; tray apps like Discord hide to the system tray.)
-   *   - macOS: runs `tell application id "<bundle id>" to quit` via argv. Never force-kills.
-   * - Website rule ("Minimize <site>"):
-   *   - Windows: minimizes the captured browser window via ShowWindow(hWnd, SW_MINIMIZE).
-   *   - macOS: minimizes the captured browser's front window by bundleId / appName (AXMinimized).
-   */
   ipcMain.handle(
     'buddy:close-or-minimize-target',
     async (): Promise<{ ok: boolean }> => {
@@ -455,10 +750,8 @@ function registerIpcHandlers(): void {
             $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
             if ($null -ne $p -and $p.MainWindowHandle -ne [IntPtr]::Zero) {
               if ($mode -eq "website") {
-                # 6 = SW_MINIMIZE (minimize captured browser window; never close it)
                 [void][Win32WindowAction]::ShowWindow($p.MainWindowHandle, 6)
               } else {
-                # Politely ask the desktop app to close its main window
                 [void]$p.CloseMainWindow()
                 Start-Sleep -Seconds 3
                 $stillRunning = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
@@ -470,9 +763,17 @@ function registerIpcHandlers(): void {
           `;
           await execFileAsync(
             'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-Command', psScript],
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-WindowStyle',
+              'Hidden',
+              '-Command',
+              psScript,
+            ],
             {
               timeout: 5500,
+              windowsHide: true,
               env: {
                 ...process.env,
                 SB_TARGET_PID: String(captured.pid),
@@ -628,10 +929,6 @@ app.whenReady().then(() => {
   screen.on('display-removed', () => assertAlwaysOnTop(mainWindow));
   screen.on('display-metrics-changed', () => assertAlwaysOnTop(mainWindow));
 
-  setInterval(() => {
-    void pollForegroundWindow();
-  }, 2000);
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();
@@ -642,6 +939,22 @@ app.whenReady().then(() => {
   });
 });
 
+app.on('before-quit', () => {
+  isAppQuitting = true;
+  stopForegroundWatcherHelper();
+});
+
+app.on('will-quit', () => {
+  isAppQuitting = true;
+  stopForegroundWatcherHelper();
+});
+
 app.on('window-all-closed', () => {
+  isAppQuitting = true;
+  stopForegroundWatcherHelper();
   app.quit();
+});
+
+process.on('exit', () => {
+  stopForegroundWatcherHelper();
 });
