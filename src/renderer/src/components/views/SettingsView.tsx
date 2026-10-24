@@ -9,6 +9,10 @@ import {
 
 export type AppearanceMode = 'dark' | 'light' | 'system';
 
+export interface SettingsViewProps {
+  onOpenOnboarding?: () => void;
+}
+
 export const THEME_STORAGE_KEY = 'study_buddy_theme_mode';
 const CUSTOM_CHIME_STORAGE_KEY = 'study_buddy_custom_chime_v1';
 
@@ -49,7 +53,9 @@ if (typeof window !== 'undefined') {
   }
 }
 
-export const SettingsView: React.FC = () => {
+export const SettingsView: React.FC<SettingsViewProps> = ({
+  onOpenOnboarding,
+}) => {
   // 1. Appearance Card State (Default: Match system)
   const [appearance, setAppearance] = useState<AppearanceMode>(() => {
     try {
@@ -162,6 +168,14 @@ export const SettingsView: React.FC = () => {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  const handleReopenOnboarding = () => {
+    if (onOpenOnboarding) {
+      onOpenOnboarding();
+    } else {
+      window.dispatchEvent(new CustomEvent('study-buddy:open-onboarding'));
+    }
   };
 
   return (
@@ -336,7 +350,7 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. ACCOUNT & LOCAL DATA CARD (Stage 1 Tester + Stage 5 Reset / Dev Demo Data) */}
+        {/* 3. ACCOUNT & LOCAL DATA CARD (Stage 1 Tester + Stage 5 Reset + Stage 9 Reopen Onboarding) */}
         <div className="col-span-6 h-fit flex flex-col gap-4 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -353,7 +367,7 @@ export const SettingsView: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               disabled
@@ -370,6 +384,15 @@ export const SettingsView: React.FC = () => {
               className="rounded-xl bg-rose-100 text-rose-800 border border-rose-300 dark:bg-[#FF6584]/20 dark:text-[#FF6584] dark:border-[#FF6584]/30 px-4 py-2 text-[12.5px] font-semibold opacity-45 cursor-not-allowed"
             >
               Delete account
+            </button>
+
+            {/* Stage 9: Reopen Tester Onboarding Tour */}
+            <button
+              type="button"
+              onClick={handleReopenOnboarding}
+              className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3.5 py-2 text-[12px] font-semibold text-[#C4B5FD] hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+            >
+              Reopen tester onboarding
             </button>
           </div>
 

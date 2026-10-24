@@ -1,7 +1,7 @@
 // src/main/index.ts
 import { app, shell, BrowserWindow, ipcMain, screen, dialog } from 'electron';
-import { join } from 'path';
-import { writeFile, readFile } from 'fs/promises';
+import { join, dirname } from 'path';
+import { writeFile, readFile, readdir } from 'fs/promises';
 import { execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 
@@ -19,15 +19,34 @@ export interface OverlayTriggerPayload {
   mainDetectToDispatchMs?: number;
 }
 
+export interface SmartActivationTriggerPayload {
+  targetId: string;
+  tagName: string;
+  kind: 'website' | 'app';
+}
+
 interface WatcherAppRule {
   id: string;
   kind?: 'website' | 'app';
   targetName: string;
   domainOrProcess: string;
   processName?: string;
+  processNames?: string[];
   bundleId?: string;
+  titleKeyword?: string;
   strictBlock: boolean;
   enabled: boolean;
+}
+
+interface WatcherSmartTarget {
+  id: string;
+  kind: 'website' | 'app';
+  tagName: string;
+  targetPathOrUrl: string;
+  processName?: string;
+  processNames?: string[];
+  bundleId?: string;
+  titleKeyword?: string;
 }
 
 interface ForegroundWindowInfo {
@@ -63,7 +82,9 @@ interface InspectedAppTarget {
   filePath: string;
   displayName: string;
   processName: string;
+  processNames: string[];
   bundleId?: string;
+  titleKeyword?: string;
   isLauncherWarning?: boolean;
   warningMessage?: string;
 }
@@ -71,9 +92,13 @@ interface InspectedAppTarget {
 interface RunningOpenAppItem {
   pid: number;
   processName: string;
+  processNames?: string[];
   rawProcessName: string;
   bundleId?: string;
   windowTitle: string;
+  hostKind?: 'chrome_app' | 'store_app' | 'normal';
+  hostLabel?: string;
+  suggestedTitleKeyword?: string;
 }
 
 const IS_DEV =
@@ -82,10 +107,14 @@ const IS_DEV =
 let mainWindow: BrowserWindow | null = null;
 let isAppQuitting = false;
 
-// Stage P6 / P7 Watcher State
+// Stage P6 / P7 / P8 Watcher State
 let isFocusSessionRunning = false;
+let isSessionActive = false; // true if focusing, paused, or on_break (never start smart activation unless idle)
 let isInterventionOverlayActive = false;
 let watchedRules: WatcherAppRule[] = [];
+let isSmartActivationEnabled = true;
+let watchedSmartTargets: WatcherSmartTarget[] = [];
+
 let lastCapturedMatch: CapturedMatchTarget | null = null;
 let latestForegroundWindow: ForegroundWindowInfo | null = null;
 
@@ -100,9 +129,18 @@ let macAutomationPermissionNoticeLogged = false;
 const WATCHER_HEARTBEAT_TIMEOUT_MS = 5000;
 const MAX_RESTARTS_PER_MINUTE = 3;
 
+// App Rule Cooldowns
 const cooldownUntilMap = new Map<string, number>();
 const NON_STRICT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes for default rules
 const STRICT_COOLDOWN_MS = 30 * 1000; // 30 seconds after dismissal for strict rules
+
+// Smart Activation State & Cooldowns
+const SMART_CANCEL_COOLDOWN_MS = 60 * 60 * 1000; // 60 minutes when user clicks Cancel
+const SMART_RETRIGGER_WINDOW_MS = 30 * 60 * 1000; // 30 minutes if app stays open
+const smartCancelCooldownUntilMap = new Map<string, number>();
+const smartLastTriggeredAtMap = new Map<string, number>();
+const smartTargetClosedSinceTriggerMap = new Map<string, boolean>();
+let lastMatchedSmartTargetId: string | null = null;
 
 const KNOWN_BROWSERS = [
   'chrome',
@@ -119,13 +157,33 @@ const KNOWN_BROWSERS = [
   'vivaldi',
 ];
 
-/**
- * Stage P7: Shared normalization helper for desktop app targets.
- * - trims; strips surrounding single or double quotes;
- * - if it contains / or \, takes the last path segment (file or .app folder name);
- * - strips a trailing .exe, .app, .lnk, .dmg, .appimage (case-insensitive);
- * - lowercases; collapses inner whitespace; keeps parentheses if part of the file name.
- */
+const GENERIC_PARENT_FOLDERS = new Set([
+  'applications',
+  'application',
+  'app',
+  'apps',
+  'bin',
+  'binaries',
+  'win64',
+  'win32',
+  'x64',
+  'x86',
+  'release',
+  'debug',
+  'contents',
+  'macos',
+  'resources',
+  'local',
+  'roaming',
+  'appdata',
+  'program files',
+  'program files (x86)',
+  'programs',
+  'users',
+  'system32',
+  'windows',
+]);
+
 export function normalizeAppTarget(input: string): { processName: string } {
   let s = (input ?? '').trim();
 
@@ -174,6 +232,111 @@ function isLikelyLauncherExecutable(input: string): boolean {
   );
 }
 
+function isBrowserProcess(fgProc: string): boolean {
+  return KNOWN_BROWSERS.some(
+    (b) => fgProc === b || fgProc.startsWith(`${b} `)
+  );
+}
+
+function isBrowserOrHostProcess(fgProc: string): boolean {
+  return fgProc === 'applicationframehost' || isBrowserProcess(fgProc);
+}
+
+function extractTitleKeywordFromWindowTitle(
+  windowTitle: string,
+  fallbackTag?: string
+): string {
+  const raw = (windowTitle ?? '').trim();
+  if (!raw) return (fallbackTag ?? '').trim();
+
+  const cleaned = raw
+    .replace(
+      /\s+[-–—|]\s+(Google Chrome|Chrome|Microsoft​?\s*Edge|Edge|Mozilla Firefox|Firefox|Brave|Opera|Vivaldi|Arc|Safari|Personal|Work).*$/i,
+      ''
+    )
+    .replace(/\s+and\s+\d+\s+more\s+pages?.*$/i, '')
+    .replace(/^\(\d+\)\s*/, '')
+    .trim();
+
+  if (!cleaned) return (fallbackTag ?? raw).trim();
+
+  const dashParts = cleaned
+    .split(/\s+[-–—|]\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (dashParts.length > 1) {
+    return dashParts[0];
+  }
+  return cleaned;
+}
+
+/**
+ * Stage P8: Builds the deduplicated list of process aliases for a path or process name.
+ * Strips -launcher / _launcher / " launcher", and for Update.exe / Setup.exe extracts
+ * the parent folder name (e.g. AppData\Local\Discord\Update.exe -> "discord").
+ */
+function buildProcessAliases(
+  rawPathOrInput: string,
+  extraAliases: string[] = []
+): string[] {
+  const aliases: string[] = [];
+  const addAlias = (candidate?: string) => {
+    const norm = normalizeAppTarget(candidate ?? '').processName;
+    if (norm && !aliases.includes(norm)) {
+      aliases.push(norm);
+    }
+  };
+
+  const primary = normalizeAppTarget(rawPathOrInput).processName;
+
+  if (primary) {
+    const stripped = primary
+      .replace(/([-_\s]+)(launcher|installer|setup|updater|update)$/i, '')
+      .trim();
+    if (stripped && stripped !== primary) {
+      addAlias(stripped);
+    }
+  }
+
+  const cleanedPath = (rawPathOrInput ?? '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/[\\/]+$/, '');
+
+  if (cleanedPath.includes('/') || cleanedPath.includes('\\')) {
+    const parts = cleanedPath.split(/[\\/]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      for (let i = parts.length - 2; i >= 0; i -= 1) {
+        const folder = parts[i].trim();
+        const folderLower = folder.toLowerCase();
+        if (
+          /^app-\d/i.test(folderLower) ||
+          /^v?\d+\.\d+/i.test(folderLower) ||
+          GENERIC_PARENT_FOLDERS.has(folderLower) ||
+          /^[a-z]:$/i.test(folderLower)
+        ) {
+          continue;
+        }
+        const folderNorm = normalizeAppTarget(folder).processName;
+        if (
+          folderNorm &&
+          (isLikelyLauncherExecutable(primary) || folderNorm !== primary)
+        ) {
+          addAlias(folderNorm);
+          break;
+        }
+      }
+    }
+  }
+
+  for (const extra of extraAliases) {
+    addAlias(extra);
+  }
+
+  addAlias(primary);
+  return aliases;
+}
+
 function resolveRuleKindInMain(rule: WatcherAppRule): 'website' | 'app' {
   if (rule.kind === 'app' || rule.kind === 'website') {
     return rule.kind;
@@ -187,6 +350,13 @@ function resolveRuleKindInMain(rule: WatcherAppRule): 'website' | 'app' {
     return 'app';
   }
   return 'website';
+}
+
+function shouldWatcherHelperRun(): boolean {
+  if (isAppQuitting) return false;
+  if (isFocusSessionRunning) return true;
+  if (isSmartActivationEnabled && watchedSmartTargets.length > 0) return true;
+  return false;
 }
 
 function assertAlwaysOnTop(win: BrowserWindow | null): void {
@@ -269,6 +439,14 @@ export function dispatchOverlayTrigger(
   mainWindow.webContents.send('buddy:trigger-overlay', { type, payload });
 }
 
+function dispatchSmartActivationTrigger(
+  payload: SmartActivationTriggerPayload
+): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  assertAlwaysOnTop(mainWindow);
+  mainWindow.webContents.send('buddy:smart-activation-trigger', payload);
+}
+
 function applyCooldownForMatch(match: CapturedMatchTarget): void {
   const duration = match.strictBlock
     ? STRICT_COOLDOWN_MS
@@ -279,10 +457,166 @@ function applyCooldownForMatch(match: CapturedMatchTarget): void {
 }
 
 /**
- * Stage P7: Evaluates a foreground window change against active App Rules.
- * - For 'app' rules: uses ONLY normalized processName, normalized tagName, macOS bundleId,
- *   safe helper prefix ("discord helper"), or Windows ApplicationFrameHost window title.
- * - For 'website' rules: matches known browsers whose active window title contains the tag or domain keyword.
+ * Shared matcher used by both App Rules and Smart Activation targets.
+ */
+function matchTargetAgainstForeground(
+  target: {
+    kind: 'website' | 'app';
+    tagName: string;
+    domainOrProcess: string;
+    processName?: string;
+    processNames?: string[];
+    bundleId?: string;
+    titleKeyword?: string;
+  },
+  fg: ForegroundWindowInfo,
+  fgProc: string,
+  fgBundleLower: string,
+  isBrowser: boolean
+): { matched: boolean; reason: string; targetKey: string } {
+  const cleanTagName =
+    target.tagName.replace(/\s*\(.*?\)\s*/g, '').trim() || target.tagName;
+  const normalizedTag = normalizeAppTagName(target.tagName);
+
+  if (target.kind === 'app') {
+    const aliases =
+      target.processNames && target.processNames.length > 0
+        ? target.processNames.map((a) => normalizeAppTarget(a).processName)
+        : buildProcessAliases(
+            target.domainOrProcess || target.processName || target.tagName,
+            target.processName ? [target.processName] : []
+          );
+    if (normalizedTag && !aliases.includes(normalizedTag)) {
+      aliases.push(normalizedTag);
+    }
+
+    const ruleBundle = (target.bundleId ?? '').trim().toLowerCase();
+    const effectiveTitleKeyword = (
+      target.titleKeyword?.trim() || cleanTagName
+    ).toLowerCase();
+
+    let processMatched = false;
+    let matchSource = '';
+
+    if (ruleBundle && fgBundleLower && fgBundleLower === ruleBundle) {
+      processMatched = true;
+      matchSource = `bundleId="${ruleBundle}"`;
+    } else if (aliases.includes(fgProc)) {
+      processMatched = true;
+      matchSource = `alias="${fgProc}"`;
+    } else {
+      const prefixAlias = aliases.find(
+        (alias) =>
+          alias.length >= 3 &&
+          (fgProc.startsWith(`${alias} `) ||
+            fgProc.startsWith(`${alias}-`) ||
+            fgProc.startsWith(`${alias}_`) ||
+            fgProc.startsWith(`${alias}helper`))
+      );
+      if (prefixAlias) {
+        processMatched = true;
+        matchSource = `helper prefix="${prefixAlias}"`;
+      } else if (fgProc === 'applicationframehost') {
+        // UWP / Microsoft Store host process: match via title keyword below
+        processMatched = true;
+        matchSource = 'ApplicationFrameHost';
+      }
+    }
+
+    if (!processMatched) {
+      return {
+        matched: false,
+        reason: `name mismatch (watches [${aliases.join(', ')}], fg is "${fgProc}")`,
+        targetKey: aliases[0] || normalizedTag,
+      };
+    }
+
+    // Stage P8 Part A.2: If the matched process is a browser or ApplicationFrameHost,
+    // REQUIRE the window title to contain the titleKeyword.
+    if (isBrowserOrHostProcess(fgProc)) {
+      if (
+        !effectiveTitleKeyword ||
+        !fg.windowTitle ||
+        !fg.windowTitle.includes(effectiveTitleKeyword)
+      ) {
+        return {
+          matched: false,
+          reason: `title keyword missing (needs "${effectiveTitleKeyword}" in title "${fg.windowTitle}")`,
+          targetKey: `${fgProc}:${effectiveTitleKeyword}`,
+        };
+      }
+      return {
+        matched: true,
+        reason: `${matchSource} + titleKeyword="${effectiveTitleKeyword}"`,
+        targetKey: `${fgProc}:${effectiveTitleKeyword}`,
+      };
+    }
+
+    // If user explicitly set a custom titleKeyword on a normal app, also honor it
+    if (
+      target.titleKeyword &&
+      target.titleKeyword.trim() &&
+      (!fg.windowTitle ||
+        !fg.windowTitle.includes(target.titleKeyword.trim().toLowerCase()))
+    ) {
+      return {
+        matched: false,
+        reason: `title keyword missing (needs "${target.titleKeyword
+          .trim()
+          .toLowerCase()}" in title "${fg.windowTitle}")`,
+        targetKey: aliases[0] || normalizedTag,
+      };
+    }
+
+    return {
+      matched: true,
+      reason: matchSource,
+      targetKey: aliases[0] || normalizedTag,
+    };
+  }
+
+  // Website matching
+  if (!isBrowser) {
+    return {
+      matched: false,
+      reason: `fg "${fgProc}" is not a browser`,
+      targetKey: normalizedTag,
+    };
+  }
+
+  if (!fg.windowTitle) {
+    return {
+      matched: false,
+      reason: 'browser window title is empty',
+      targetKey: normalizedTag,
+    };
+  }
+
+  const domainBase = (target.domainOrProcess ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('.')[0];
+  const kw = (target.titleKeyword?.trim() || normalizedTag).toLowerCase();
+
+  const matched =
+    (kw.length > 0 && fg.windowTitle.includes(kw)) ||
+    (domainBase.length > 2 && fg.windowTitle.includes(domainBase));
+
+  return {
+    matched,
+    reason: matched
+      ? `browser title matched "${kw || domainBase}"`
+      : `title keyword missing (needs "${kw || domainBase}" in "${fg.windowTitle}")`,
+    targetKey: kw || domainBase,
+  };
+}
+
+/**
+ * Stage P8: Evaluates every foreground window change against:
+ * 1. App Rules (when a focus session is running)
+ * 2. Smart Activation targets (when no session is active and Smart Activation is enabled)
  */
 function evaluateForegroundWindow(
   fg: ForegroundWindowInfo,
@@ -293,7 +627,7 @@ function evaluateForegroundWindow(
   const fgProc = normalizeAppTarget(fg.rawProcessName || fg.processName).processName;
   const fgBundleLower = (fg.bundleId ?? '').trim().toLowerCase();
 
-  // Never match Study Buddy / Electron itself
+  // Ignore Study Buddy / Electron itself
   if (
     fg.pid === process.pid ||
     fgProc === 'electron' ||
@@ -304,11 +638,114 @@ function evaluateForegroundWindow(
     return;
   }
 
-  if (!isFocusSessionRunning) {
-    if (IS_DEV) {
-      console.info(
-        `[watcher] fg="${fgProc}" | skipped (focus session is not running)`
+  const isBrowser = isBrowserProcess(fgProc);
+
+  if (IS_DEV) {
+    console.info(
+      `[watcher] fg change: proc="${fgProc}", bundle="${fgBundleLower || '-'}", title="${fg.windowTitle || '-'}"`
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1. SMART ACTIVATION EVALUATION (when no session is running/paused/on_break)
+  // ---------------------------------------------------------------------------
+  if (!isSessionActive && isSmartActivationEnabled && watchedSmartTargets.length > 0) {
+    let matchedSmartId: string | null = null;
+
+    for (const st of watchedSmartTargets) {
+      const check = matchTargetAgainstForeground(
+        {
+          kind: st.kind,
+          tagName: st.tagName,
+          domainOrProcess: st.targetPathOrUrl,
+          processName: st.processName,
+          processNames: st.processNames,
+          bundleId: st.bundleId,
+          titleKeyword: st.titleKeyword,
+        },
+        fg,
+        fgProc,
+        fgBundleLower,
+        isBrowser
       );
+
+      if (!check.matched) {
+        continue;
+      }
+
+      matchedSmartId = st.id;
+      const now = Date.now();
+
+      // Check 60-minute Cancel cooldown
+      const cancelCooldownUntil = smartCancelCooldownUntilMap.get(st.id) ?? 0;
+      if (now < cancelCooldownUntil) {
+        if (IS_DEV) {
+          const minsLeft = Math.ceil((cancelCooldownUntil - now) / 60000);
+          console.info(
+            `[watcher] smart target="${st.tagName}" matched, but on Cancel cooldown (${minsLeft}m left)`
+          );
+        }
+        break;
+      }
+
+      // Check 30-minute re-trigger window unless the target was closed/left and re-opened
+      const lastTrig = smartLastTriggeredAtMap.get(st.id) ?? 0;
+      const wasClosedOrLeft =
+        smartTargetClosedSinceTriggerMap.get(st.id) ?? true;
+
+      if (
+        !wasClosedOrLeft &&
+        lastTrig > 0 &&
+        now - lastTrig < SMART_RETRIGGER_WINDOW_MS
+      ) {
+        if (IS_DEV) {
+          console.info(
+            `[watcher] smart target="${st.tagName}" matched, waiting for re-open or 30m window`
+          );
+        }
+        break;
+      }
+
+      smartLastTriggeredAtMap.set(st.id, now);
+      smartTargetClosedSinceTriggerMap.set(st.id, false);
+      lastMatchedSmartTargetId = st.id;
+
+      if (IS_DEV) {
+        console.info(
+          `[watcher] SMART ACTIVATION TRIGGERED for "${st.tagName}" (${check.reason})`
+        );
+      }
+
+      dispatchSmartActivationTrigger({
+        targetId: st.id,
+        tagName: st.tagName,
+        kind: st.kind,
+      });
+      break;
+    }
+
+    // If the user switched away from the previously matched smart target, mark it so re-opening can trigger
+    if (
+      lastMatchedSmartTargetId &&
+      matchedSmartId !== lastMatchedSmartTargetId
+    ) {
+      smartTargetClosedSinceTriggerMap.set(lastMatchedSmartTargetId, true);
+      lastMatchedSmartTargetId = matchedSmartId;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. APP RULES EVALUATION (only while a focus session is running)
+  // ---------------------------------------------------------------------------
+  if (!isFocusSessionRunning) {
+    if (IS_DEV && watchedRules.length > 0) {
+      for (const rule of watchedRules) {
+        if (resolveRuleKindInMain(rule) === 'app') {
+          console.info(
+            `[watcher] app rule="${rule.targetName}" -> skipped (session not running)`
+          );
+        }
+      }
     }
     return;
   }
@@ -316,168 +753,113 @@ function evaluateForegroundWindow(
   if (isInterventionOverlayActive) {
     if (IS_DEV) {
       console.info(
-        `[watcher] fg="${fgProc}" | skipped (intervention overlay already active)`
+        `[watcher] app rules skipped (intervention overlay already active)`
       );
     }
     return;
   }
-
-  if (watchedRules.length === 0) {
-    if (IS_DEV) {
-      console.info(`[watcher] fg="${fgProc}" | no rules configured`);
-    }
-    return;
-  }
-
-  const isBrowser = KNOWN_BROWSERS.some(
-    (b) => fgProc === b || fgProc.startsWith(`${b} `)
-  );
 
   for (const rule of watchedRules) {
     const resolvedKind = resolveRuleKindInMain(rule);
     const cleanTagName =
       rule.targetName.replace(/\s*\(.*?\)\s*/g, '').trim() || rule.targetName;
-    const normalizedTag = normalizeAppTagName(rule.targetName);
 
     if (!rule.enabled) {
       if (IS_DEV && resolvedKind === 'app') {
-        const ruleProc =
-          rule.processName ||
-          normalizeAppTarget(rule.domainOrProcess).processName;
         console.info(
-          `[watcher] rule="${rule.targetName}" (proc="${ruleProc}") vs fg="${fgProc}" -> no match (rule disabled)`
+          `[watcher] app rule="${rule.targetName}" -> no match (rule disabled)`
         );
       }
       continue;
     }
 
-    let isMatch = false;
-    let matchReason = 'process name mismatch';
+    const check = matchTargetAgainstForeground(
+      {
+        kind: resolvedKind,
+        tagName: rule.targetName,
+        domainOrProcess: rule.domainOrProcess,
+        processName: rule.processName,
+        processNames: rule.processNames,
+        bundleId: rule.bundleId,
+        titleKeyword: rule.titleKeyword,
+      },
+      fg,
+      fgProc,
+      fgBundleLower,
+      isBrowser
+    );
 
-    if (resolvedKind === 'app') {
-      const ruleProc = (
-        rule.processName ||
-        normalizeAppTarget(rule.domainOrProcess).processName ||
-        normalizedTag
-      )
-        .toLowerCase()
-        .trim();
-      const ruleBundle = (rule.bundleId ?? '').trim().toLowerCase();
-
-      if (ruleBundle && fgBundleLower && fgBundleLower === ruleBundle) {
-        isMatch = true;
-        matchReason = `bundleId="${ruleBundle}"`;
-      } else if (ruleProc && fgProc === ruleProc) {
-        isMatch = true;
-        matchReason = `exact processName="${ruleProc}"`;
-      } else if (normalizedTag && fgProc === normalizedTag) {
-        isMatch = true;
-        matchReason = `exact tagName="${normalizedTag}"`;
-      } else if (
-        ruleProc.length >= 3 &&
-        (fgProc.startsWith(`${ruleProc} `) ||
-          fgProc.startsWith(`${ruleProc}-`) ||
-          fgProc.startsWith(`${ruleProc}_`) ||
-          fgProc.startsWith(`${ruleProc}helper`))
-      ) {
-        isMatch = true;
-        matchReason = `helper process prefix="${ruleProc}"`;
-      } else if (
-        fgProc === 'applicationframehost' &&
-        fg.windowTitle &&
-        ((ruleProc.length >= 2 && fg.windowTitle.includes(ruleProc)) ||
-          (normalizedTag.length >= 2 && fg.windowTitle.includes(normalizedTag)))
-      ) {
-        isMatch = true;
-        matchReason = `UWP ApplicationFrameHost window title`;
-      }
-
-      if (IS_DEV) {
+    if (!check.matched) {
+      if (IS_DEV && resolvedKind === 'app') {
         console.info(
-          `[watcher] app rule="${rule.targetName}" (normalized proc="${ruleProc}"${
-            ruleBundle ? `, bundle="${ruleBundle}"` : ''
-          }) vs fg="${fgProc}"${
-            fgBundleLower ? ` (bundle="${fgBundleLower}")` : ''
-          } -> ${isMatch ? `MATCH (${matchReason})` : `no match (${matchReason})`}`
+          `[watcher] app rule="${rule.targetName}" -> no match (${check.reason})`
         );
       }
-    } else if (resolvedKind === 'website' && isBrowser && fg.windowTitle) {
-      const domainBase = rule.domainOrProcess
-        .trim()
-        .toLowerCase()
-        .replace(/^https?:\/\//, '')
-        .replace(/^www\./, '')
-        .split('.')[0];
-
-      isMatch =
-        (normalizedTag.length > 0 && fg.windowTitle.includes(normalizedTag)) ||
-        (domainBase.length > 2 && fg.windowTitle.includes(domainBase));
+      continue;
     }
 
-    if (isMatch) {
-      const now = Date.now();
-      const targetKey =
-        resolvedKind === 'app'
-          ? rule.processName ||
-            normalizeAppTarget(rule.domainOrProcess).processName ||
-            normalizedTag
-          : normalizedTag;
+    const now = Date.now();
+    const cooldownUntil = Math.max(
+      cooldownUntilMap.get(rule.id) ?? 0,
+      cooldownUntilMap.get(check.targetKey) ?? 0
+    );
 
-      const cooldownUntil = Math.max(
-        cooldownUntilMap.get(rule.id) ?? 0,
-        cooldownUntilMap.get(targetKey) ?? 0
-      );
-
-      if (now < cooldownUntil) {
-        if (IS_DEV && resolvedKind === 'app') {
-          const secsLeft = Math.ceil((cooldownUntil - now) / 1000);
-          console.info(
-            `[watcher] app rule="${rule.targetName}" matched fg="${fgProc}", but on cooldown (${secsLeft}s remaining)`
-          );
-        }
-        continue;
-      }
-
-      lastCapturedMatch = {
-        ruleId: rule.id,
-        targetKey,
-        targetName: cleanTagName,
-        resolvedKind,
-        strictBlock: Boolean(rule.strictBlock),
-        pid: fg.pid,
-        rawProcessName: fg.rawProcessName,
-        bundleId: fg.bundleId,
-      };
-
-      isInterventionOverlayActive = true;
-      applyCooldownForMatch(lastCapturedMatch);
-
-      const mainDetectToDispatchMs = Math.max(
-        0,
-        Math.round(performance.now() - changeDetectedPerfMs)
-      );
-
+    if (now < cooldownUntil) {
       if (IS_DEV) {
+        const secsLeft = Math.ceil((cooldownUntil - now) / 1000);
         console.info(
-          `[NudgeTiming][Main] foreground change detected -> overlay dispatched in ${mainDetectToDispatchMs}ms (target: "${cleanTagName}", kind: ${resolvedKind})`
+          `[watcher] rule="${rule.targetName}" -> no match (cooldown: ${secsLeft}s remaining)`
         );
       }
-
-      dispatchOverlayTrigger('intervention', {
-        targetAppOrSite: cleanTagName,
-        targetKind: resolvedKind,
-        strictMode: Boolean(rule.strictBlock),
-        dispatchedAtEpochMs: Date.now(),
-        mainDetectToDispatchMs,
-      });
-      break;
+      continue;
     }
+
+    if (IS_DEV && resolvedKind === 'app') {
+      console.info(
+        `[watcher] app rule="${rule.targetName}" -> MATCH (${check.reason})`
+      );
+    }
+
+    lastCapturedMatch = {
+      ruleId: rule.id,
+      targetKey: check.targetKey,
+      targetName: cleanTagName,
+      resolvedKind,
+      strictBlock: Boolean(rule.strictBlock),
+      pid: fg.pid,
+      rawProcessName: fg.rawProcessName,
+      bundleId: fg.bundleId,
+    };
+
+    isInterventionOverlayActive = true;
+    applyCooldownForMatch(lastCapturedMatch);
+
+    const mainDetectToDispatchMs = Math.max(
+      0,
+      Math.round(performance.now() - changeDetectedPerfMs)
+    );
+
+    if (IS_DEV) {
+      console.info(
+        `[NudgeTiming][Main] foreground change detected -> overlay dispatched in ${mainDetectToDispatchMs}ms (target: "${cleanTagName}", kind: ${resolvedKind})`
+      );
+    }
+
+    dispatchOverlayTrigger('intervention', {
+      targetAppOrSite: cleanTagName,
+      targetKind: resolvedKind,
+      strictMode: Boolean(rule.strictBlock),
+      dispatchedAtEpochMs: Date.now(),
+      mainDetectToDispatchMs,
+    });
+    break;
   }
 }
 
 /**
- * Stage P7: Inspects an executable path, Windows .lnk shortcut, or macOS .app bundle
- * to extract the true processName, displayName, bundleId, and launcher warning.
+ * Stage P8: Inspects an executable path, Windows .lnk shortcut, or macOS .app bundle.
+ * - Builds processNames aliases (stripping -launcher / _launcher, adding parent folder for Update.exe/Setup.exe).
+ * - On Windows, checks the same folder for sibling .exe files (e.g. blender.exe next to blender-launcher.exe).
  */
 async function inspectDesktopAppPath(
   rawFilePath: string
@@ -489,6 +871,7 @@ async function inspectDesktopAppPath(
       filePath: '',
       displayName: '',
       processName: '',
+      processNames: [],
     };
   }
 
@@ -496,8 +879,8 @@ async function inspectDesktopAppPath(
   let bundleId: string | undefined;
   let displayName = '';
   let processName = '';
+  const siblingExeNames: string[] = [];
 
-  // 1. Windows .lnk shortcut resolution via Electron's shell.readShortcutLink
   if (process.platform === 'win32' && /\.lnk$/i.test(cleanedPath)) {
     try {
       const shortcut = shell.readShortcutLink(cleanedPath);
@@ -505,11 +888,10 @@ async function inspectDesktopAppPath(
         resolvedPath = shortcut.target;
       }
     } catch {
-      // Fall back to the .lnk file name itself if shortcut cannot be read
+      // Fall back to the .lnk file name
     }
   }
 
-  // 2. macOS .app bundle inspection via Contents/Info.plist
   if (process.platform === 'darwin' && /\.app\/?$/i.test(resolvedPath)) {
     const appPath = resolvedPath.replace(/\/+$/, '');
     const plistPath = join(appPath, 'Contents', 'Info.plist');
@@ -537,59 +919,89 @@ async function inspectDesktopAppPath(
         plist.CFBundleName?.trim() ||
         normalizeAppTarget(appPath).processName;
     } catch {
-      // Fallback: parse XML Info.plist or use .app folder name
-      try {
-        const xml = await readFile(plistPath, 'utf-8');
-        const bundleMatch = xml.match(
-          /<key>CFBundleIdentifier<\/key>\s*<string>([^<]+)<\/string>/
-        );
-        const execMatch = xml.match(
-          /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/
-        );
-        const nameMatch = xml.match(
-          /<key>CFBundleName<\/key>\s*<string>([^<]+)<\/string>/
-        );
-        bundleId = bundleMatch?.[1]?.trim() || undefined;
-        const execName =
-          execMatch?.[1]?.trim() || nameMatch?.[1]?.trim() || appPath;
-        processName = normalizeAppTarget(execName).processName;
-        displayName = nameMatch?.[1]?.trim() || processName;
-      } catch {
-        processName = normalizeAppTarget(appPath).processName;
-        displayName = processName;
-      }
+      processName = normalizeAppTarget(appPath).processName;
+      displayName = processName;
     }
   } else {
     processName = normalizeAppTarget(resolvedPath).processName;
-    // Derive a clean title-cased display name from the shortcut or executable filename
     const rawSegment =
       cleanedPath
         .replace(/[\\/]+$/, '')
         .split(/[\\/]+/)
         .pop() ?? processName;
     displayName = rawSegment.replace(/\.(exe|app|lnk|dmg|appimage)$/i, '');
+
+    // Stage P8 Part A.1: On Windows, if a launcher is picked, scan its folder for sibling .exe files
+    if (
+      process.platform === 'win32' &&
+      (resolvedPath.includes('\\') || resolvedPath.includes('/'))
+    ) {
+      try {
+        const folderPath = dirname(resolvedPath);
+        const entries = await readdir(folderPath);
+        const strippedBase = processName
+          .replace(/([-_\s]+)(launcher|installer|setup|updater|update)$/i, '')
+          .trim();
+
+        for (const entry of entries) {
+          if (!/\.exe$/i.test(entry)) continue;
+          const sibNorm = normalizeAppTarget(entry).processName;
+          if (!sibNorm || sibNorm === processName) continue;
+          if (isLikelyLauncherExecutable(sibNorm)) continue;
+          if ( sibNorm === 'crashpad_handler' || sibNorm.includes('uninstall')) {
+            continue;
+          }
+          // Prioritize exact stripped match (e.g. blender.exe next to blender-launcher.exe)
+          if (strippedBase && sibNorm === strippedBase) {
+            siblingExeNames.unshift(sibNorm);
+          } else if (siblingExeNames.length < 3) {
+            siblingExeNames.push(sibNorm);
+          }
+        }
+      } catch {
+        // Ignore directory read errors
+      }
+    }
   }
 
+  const processNames = buildProcessAliases(resolvedPath, [
+    ...siblingExeNames,
+    ...(processName ? [processName] : []),
+  ]);
+
+  const effectivePrimary = processNames[0] || processName;
   const isLauncher =
     isLikelyLauncherExecutable(resolvedPath) ||
     isLikelyLauncherExecutable(processName);
 
+  // Clean displayName if it was "blender-launcher" or "Update"
+  if (
+    isLauncher &&
+    effectivePrimary &&
+    effectivePrimary !== processName
+  ) {
+    displayName =
+      effectivePrimary.charAt(0).toUpperCase() + effectivePrimary.slice(1);
+  }
+
   return {
     canceled: false,
     filePath: resolvedPath,
-    displayName: displayName || processName,
-    processName,
+    displayName: displayName || effectivePrimary,
+    processName: effectivePrimary,
+    processNames,
     bundleId,
     isLauncherWarning: isLauncher,
     warningMessage: isLauncher
-      ? "This looks like a launcher. Open the app and use 'Choose from open apps' instead."
+      ? 'Tip: Choose from open apps is the most reliable.'
       : undefined,
   };
 }
 
 /**
- * Stage P7: Returns a list of currently running desktop applications with visible windows.
- * Results are kept in memory only.
+ * Stage P8: Lists currently open desktop applications with visible windows.
+ * Labels Chrome/Edge installed app windows ("Chrome app window") and Microsoft Store apps ("Store app"),
+ * and pre-computes `suggestedTitleKeyword` from the window title.
  */
 async function listCurrentlyOpenApps(): Promise<RunningOpenAppItem[]> {
   try {
@@ -626,24 +1038,51 @@ async function listCurrentlyOpenApps(): Promise<RunningOpenAppItem[]> {
 
       for (const item of items) {
         const rawProc = (item.ProcessName ?? '').trim();
-        if (!rawProc) continue;
+        const winTitle = (item.MainWindowTitle ?? '').trim();
+        if (!rawProc || !winTitle) continue;
         const norm = normalizeAppTarget(rawProc).processName;
         if (
           !norm ||
           norm === 'electron' ||
           norm === 'study-buddy' ||
           norm === 'study buddy' ||
-          norm === 'applicationframehost' ||
-          seen.has(norm)
+          norm === 'textinputhost'
         ) {
           continue;
         }
-        seen.add(norm);
+
+        const isStoreHost = norm === 'applicationframehost';
+        const isBrowser = isBrowserProcess(norm);
+        const suggestedKeyword = extractTitleKeywordFromWindowTitle(
+          winTitle,
+          rawProc
+        );
+
+        const dedupeKey =
+          isStoreHost || isBrowser
+            ? `${norm}:${suggestedKeyword.toLowerCase()}`
+            : norm;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+
         results.push({
           pid: Number(item.Id) || 0,
           processName: norm,
-          rawProcessName: rawProc,
-          windowTitle: (item.MainWindowTitle ?? '').trim(),
+          processNames: [norm],
+          rawProcessName: isStoreHost ? suggestedKeyword || rawProc : rawProc,
+          windowTitle: winTitle,
+          hostKind: isStoreHost
+            ? 'store_app'
+            : isBrowser
+            ? 'chrome_app'
+            : 'normal',
+          hostLabel: isStoreHost
+            ? 'Store app'
+            : isBrowser
+            ? 'Chrome app window'
+            : undefined,
+          suggestedTitleKeyword:
+            isStoreHost || isBrowser ? suggestedKeyword : undefined,
         });
       }
       return results;
@@ -697,6 +1136,7 @@ async function listCurrentlyOpenApps(): Promise<RunningOpenAppItem[]> {
 
       for (const item of items) {
         const rawProc = (item.rawProcessName ?? '').trim();
+        const winTitle = (item.windowTitle ?? '').trim();
         const norm = normalizeAppTarget(rawProc).processName;
         const bundleId = (item.bundleId ?? '').trim() || undefined;
         if (
@@ -704,18 +1144,31 @@ async function listCurrentlyOpenApps(): Promise<RunningOpenAppItem[]> {
           norm === 'electron' ||
           norm === 'study-buddy' ||
           norm === 'study buddy' ||
-          bundleId === 'tech.ericarieldelapaz.studybuddy' ||
-          seen.has(norm)
+          bundleId === 'tech.ericarieldelapaz.studybuddy'
         ) {
           continue;
         }
-        seen.add(norm);
+        const isBrowser = isBrowserProcess(norm);
+        const suggestedKeyword = extractTitleKeywordFromWindowTitle(
+          winTitle,
+          rawProc
+        );
+        const dedupeKey = isBrowser
+          ? `${norm}:${suggestedKeyword.toLowerCase()}`
+          : norm;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+
         results.push({
           pid: Number(item.pid) || 0,
           processName: norm,
+          processNames: [norm],
           rawProcessName: rawProc,
           bundleId,
-          windowTitle: (item.windowTitle ?? '').trim(),
+          windowTitle: winTitle,
+          hostKind: isBrowser ? 'chrome_app' : 'normal',
+          hostLabel: isBrowser ? 'Chrome app window' : undefined,
+          suggestedTitleKeyword: isBrowser ? suggestedKeyword : undefined,
         });
       }
       return results;
@@ -726,9 +1179,6 @@ async function listCurrentlyOpenApps(): Promise<RunningOpenAppItem[]> {
   return [];
 }
 
-/**
- * Stage P7: One-shot foreground app read for "Add the app I am in now".
- */
 async function queryCurrentForegroundAppOnce(): Promise<RunningOpenAppItem | null> {
   if (
     latestForegroundWindow &&
@@ -741,124 +1191,36 @@ async function queryCurrentForegroundAppOnce(): Promise<RunningOpenAppItem | nul
       latestForegroundWindow.rawProcessName
     ).processName;
     if (norm) {
+      const isStore = norm === 'applicationframehost';
+      const isBrowser = isBrowserProcess(norm);
+      const suggested = extractTitleKeywordFromWindowTitle(
+        latestForegroundWindow.windowTitle,
+        latestForegroundWindow.rawProcessName
+      );
       return {
         pid: latestForegroundWindow.pid,
         processName: norm,
+        processNames: [norm],
         rawProcessName: latestForegroundWindow.rawProcessName,
         bundleId: latestForegroundWindow.bundleId || undefined,
         windowTitle: latestForegroundWindow.windowTitle,
+        hostKind: isStore
+          ? 'store_app'
+          : isBrowser
+          ? 'chrome_app'
+          : 'normal',
+        hostLabel: isStore
+          ? 'Store app'
+          : isBrowser
+          ? 'Chrome app window'
+          : undefined,
+        suggestedTitleKeyword: isStore || isBrowser ? suggested : undefined,
       };
     }
   }
 
-  try {
-    if (process.platform === 'win32') {
-      const psScript = `
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        Add-Type @"
-          using System;
-          using System.Runtime.InteropServices;
-          using System.Text;
-          public class Win32FgOnce {
-            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-          }
-"@
-        $h = [Win32FgOnce]::GetForegroundWindow()
-        $sb = New-Object System.Text.StringBuilder 512
-        [void][Win32FgOnce]::GetWindowText($h, $sb, 512)
-        $pidOut = [uint32]0
-        [void][Win32FgOnce]::GetWindowThreadProcessId($h, [ref]$pidOut)
-        if ($pidOut -gt 0) {
-          $p = Get-Process -Id $pidOut -ErrorAction SilentlyContinue
-          if ($null -ne $p) {
-            $obj = @{
-              pid = [int]$pidOut
-              rawProcessName = [string]$p.ProcessName
-              windowTitle = [string]$sb.ToString()
-            }
-            Write-Output ($obj | ConvertTo-Json -Compress)
-          }
-        }
-      `;
-      const { stdout } = await execFileAsync(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-WindowStyle',
-          'Hidden',
-          '-Command',
-          psScript,
-        ],
-        { timeout: 2000, windowsHide: true }
-      );
-      const trimmed = stdout.trim();
-      if (!trimmed) return null;
-      const parsed = JSON.parse(trimmed) as {
-        pid?: number;
-        rawProcessName?: string;
-        windowTitle?: string;
-      };
-      const rawProc = (parsed.rawProcessName ?? '').trim();
-      const norm = normalizeAppTarget(rawProc).processName;
-      if (!norm) return null;
-      return {
-        pid: Number(parsed.pid) || 0,
-        processName: norm,
-        rawProcessName: rawProc,
-        windowTitle: (parsed.windowTitle ?? '').trim(),
-      };
-    }
-
-    if (process.platform === 'darwin') {
-      const jxa = `
-        var se = Application('System Events');
-        var front = se.applicationProcesses.whose({ frontmost: true });
-        if (front.length > 0) {
-          var p = front[0];
-          var name = "";
-          var pid = 0;
-          var bundleId = "";
-          var winTitle = "";
-          try { name = p.name() || ""; } catch (e) {}
-          try { pid = p.unixId() || 0; } catch (e) {}
-          try { bundleId = p.bundleIdentifier() || ""; } catch (e) {}
-          try { if (p.windows.length > 0) winTitle = p.windows[0].name() || ""; } catch (e) {}
-          JSON.stringify({ pid: pid, rawProcessName: name, bundleId: bundleId, windowTitle: winTitle });
-        } else {
-          "";
-        }
-      `;
-      const { stdout } = await execFileAsync(
-        'osascript',
-        ['-l', 'JavaScript', '-e', jxa],
-        { timeout: 2000 }
-      );
-      const trimmed = stdout.trim();
-      if (!trimmed) return null;
-      const parsed = JSON.parse(trimmed) as {
-        pid?: number;
-        rawProcessName?: string;
-        bundleId?: string;
-        windowTitle?: string;
-      };
-      const rawProc = (parsed.rawProcessName ?? '').trim();
-      const norm = normalizeAppTarget(rawProc).processName;
-      if (!norm) return null;
-      return {
-        pid: Number(parsed.pid) || 0,
-        processName: norm,
-        rawProcessName: rawProc,
-        bundleId: (parsed.bundleId ?? '').trim() || undefined,
-        windowTitle: (parsed.windowTitle ?? '').trim(),
-      };
-    }
-  } catch {
-    return null;
-  }
-  return null;
+  const list = await listCurrentlyOpenApps();
+  return list[0] ?? null;
 }
 
 function getWindowsWatcherScript(): string {
@@ -1058,7 +1420,7 @@ function stopForegroundWatcherHelper(): void {
 function scheduleHelperRestart(reason: string): void {
   stopForegroundWatcherHelper();
 
-  if (!isFocusSessionRunning || isAppQuitting) {
+  if (!shouldWatcherHelperRun()) {
     return;
   }
 
@@ -1085,7 +1447,7 @@ function scheduleHelperRestart(reason: string): void {
 }
 
 function startForegroundWatcherHelper(): void {
-  if (watcherChild || !isFocusSessionRunning || isAppQuitting) {
+  if (watcherChild || !shouldWatcherHelperRun()) {
     return;
   }
 
@@ -1137,22 +1499,14 @@ function startForegroundWatcherHelper(): void {
 
     watcherChild.on('exit', () => {
       watcherChild = null;
-      if (
-        !isStoppingHelperIntentionally &&
-        isFocusSessionRunning &&
-        !isAppQuitting
-      ) {
+      if (!isStoppingHelperIntentionally && shouldWatcherHelperRun()) {
         scheduleHelperRestart('process exited');
       }
     });
 
     watcherChild.on('error', (err) => {
       watcherChild = null;
-      if (
-        !isStoppingHelperIntentionally &&
-        isFocusSessionRunning &&
-        !isAppQuitting
-      ) {
+      if (!isStoppingHelperIntentionally && shouldWatcherHelperRun()) {
         scheduleHelperRestart(`spawn error: ${err.message}`);
       }
     });
@@ -1161,7 +1515,7 @@ function startForegroundWatcherHelper(): void {
       clearInterval(watcherWatchdogTimer);
     }
     watcherWatchdogTimer = setInterval(() => {
-      if (!isFocusSessionRunning || isAppQuitting) {
+      if (!shouldWatcherHelperRun()) {
         stopForegroundWatcherHelper();
         return;
       }
@@ -1196,31 +1550,74 @@ function registerIpcHandlers(): void {
     }
   );
 
+  /**
+   * Stage P8: Syncs session status, App Rules, and Smart Activation targets.
+   * Keeps the low-CPU watcher running whenever either a focus session is active
+   * OR Smart Activation is enabled with at least 1 smart target.
+   */
   ipcMain.on(
     'buddy:sync-watcher-state',
     (
       _event,
-      payload: { isFocusing: boolean; rules: WatcherAppRule[] }
+      payload: {
+        isFocusing: boolean;
+        isSessionActive?: boolean;
+        rules: WatcherAppRule[];
+        smartActivationEnabled?: boolean;
+        smartTargets?: WatcherSmartTarget[];
+      }
     ) => {
-      const wasFocusing = isFocusSessionRunning;
+      const wasRunningHelper = shouldWatcherHelperRun();
       isFocusSessionRunning = Boolean(payload?.isFocusing);
+      isSessionActive =
+        typeof payload?.isSessionActive === 'boolean'
+          ? payload.isSessionActive
+          : isFocusSessionRunning;
 
-      // Compute normalized processName for any rule missing it
+      if (typeof payload?.smartActivationEnabled === 'boolean') {
+        isSmartActivationEnabled = payload.smartActivationEnabled;
+      }
+      if (Array.isArray(payload?.smartTargets)) {
+        watchedSmartTargets = payload.smartTargets.map((st) => {
+          if (st.kind === 'app') {
+            const aliases =
+              st.processNames && st.processNames.length > 0
+                ? st.processNames
+                : buildProcessAliases(
+                    st.targetPathOrUrl || st.processName || st.tagName
+                  );
+            return {
+              ...st,
+              processName: aliases[0],
+              processNames: aliases,
+            };
+          }
+          return st;
+        });
+      }
+
       const incomingRules = Array.isArray(payload?.rules) ? payload.rules : [];
       watchedRules = incomingRules.map((rule) => {
         const kind = resolveRuleKindInMain(rule);
-        if (kind === 'app' && !rule.processName) {
+        if (kind === 'app') {
+          const aliases =
+            rule.processNames && rule.processNames.length > 0
+              ? rule.processNames
+              : buildProcessAliases(
+                  rule.domainOrProcess || rule.processName || rule.targetName
+                );
           return {
             ...rule,
             kind: 'app',
-            processName: normalizeAppTarget(rule.domainOrProcess).processName,
+            processName: aliases[0],
+            processNames: aliases,
           };
         }
         return { ...rule, kind };
       });
 
-      if (isFocusSessionRunning) {
-        if (!wasFocusing) {
+      if (shouldWatcherHelperRun()) {
+        if (!wasRunningHelper) {
           helperRestartTimestamps = [];
         }
         startForegroundWatcherHelper();
@@ -1230,6 +1627,22 @@ function registerIpcHandlers(): void {
         }
       } else {
         stopForegroundWatcherHelper();
+      }
+    }
+  );
+
+  /**
+   * Stage P8 Part B.3: Cancelling a Smart Activation countdown sets a 60-minute cooldown for that target.
+   */
+  ipcMain.on(
+    'buddy:cancel-smart-activation',
+    (_event, payload: { targetId: string }) => {
+      const targetId = payload?.targetId;
+      if (targetId) {
+        smartCancelCooldownUntilMap.set(
+          targetId,
+          Date.now() + SMART_CANCEL_COOLDOWN_MS
+        );
       }
     }
   );
@@ -1253,8 +1666,29 @@ function registerIpcHandlers(): void {
   });
 
   /**
-   * Stage P7: Inspects a file path (from webUtils.getPathForFile or Browse).
+   * Stage P8 Part B.4: Electron login item settings ("Start Study Buddy when I sign in").
    */
+  ipcMain.handle('buddy:get-login-item', (): boolean => {
+    try {
+      return Boolean(app.getLoginItemSettings().openAtLogin);
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(
+    'buddy:set-login-item',
+    (_event, payload: { enabled: boolean }): boolean => {
+      try {
+        const openAtLogin = Boolean(payload?.enabled);
+        app.setLoginItemSettings({ openAtLogin });
+        return Boolean(app.getLoginItemSettings().openAtLogin);
+      } catch {
+        return false;
+      }
+    }
+  );
+
   ipcMain.handle(
     'buddy:inspect-app-path',
     async (
@@ -1265,10 +1699,6 @@ function registerIpcHandlers(): void {
     }
   );
 
-  /**
-   * Stage P7: Native Browse dialog for selecting a desktop application
-   * (supports .app directory bundles in /Applications on macOS and .exe/.lnk on Windows).
-   */
   ipcMain.handle(
     'buddy:browse-desktop-app',
     async (event): Promise<InspectedAppTarget> => {
@@ -1279,6 +1709,7 @@ function registerIpcHandlers(): void {
           filePath: '',
           displayName: '',
           processName: '',
+          processNames: [],
         };
       }
 
@@ -1297,6 +1728,7 @@ function registerIpcHandlers(): void {
             filePath: '',
             displayName: '',
             processName: '',
+            processNames: [],
           };
         }
         return inspectDesktopAppPath(filePaths[0]);
@@ -1320,6 +1752,7 @@ function registerIpcHandlers(): void {
           filePath: '',
           displayName: '',
           processName: '',
+          processNames: [],
         };
       }
 
@@ -1327,9 +1760,6 @@ function registerIpcHandlers(): void {
     }
   );
 
-  /**
-   * Stage P7: Returns currently running desktop apps with a visible window.
-   */
   ipcMain.handle(
     'buddy:list-open-apps',
     async (): Promise<RunningOpenAppItem[]> => {
@@ -1337,9 +1767,6 @@ function registerIpcHandlers(): void {
     }
   );
 
-  /**
-   * Stage P7: Captures the active foreground app (used after the 3s countdown in "Add the app I am in now").
-   */
   ipcMain.handle(
     'buddy:capture-foreground-app',
     async (): Promise<RunningOpenAppItem | null> => {

@@ -6,6 +6,8 @@ export const STORAGE_KEYS = {
   REMINDERS: 'study_buddy_reminders_v1',
   SCHEDULE_BLOCKS: 'study_buddy_schedule_blocks_v1',
   SMART_TARGETS: 'study_buddy_smart_targets_v1',
+  SMART_ACTIVATION_ENABLED: 'study_buddy_smart_activation_enabled_v1',
+  LAST_USED_SESSION: 'study_buddy_last_used_session_v1',
   APP_RULES: 'study_buddy_app_rules_v1',
   SESSION_STATS: 'study_buddy_session_stats',
 } as const;
@@ -19,6 +21,22 @@ export interface DailyProgressEntry {
 }
 
 export type DailyHistoryMap = Record<string, DailyProgressEntry>;
+
+export interface LastUsedSessionConfig {
+  presetId: 'quick' | 'standard' | 'deep' | 'custom';
+  presetTitle: string;
+  focusMinutes: number;
+  breakMinutes: number;
+  hydrationIntervalMinutes: number;
+}
+
+export const DEFAULT_USUAL_SESSION: LastUsedSessionConfig = {
+  presetId: 'quick',
+  presetTitle: 'Quick 25/5',
+  focusMinutes: 25,
+  breakMinutes: 5,
+  hydrationIntervalMinutes: 30,
+};
 
 export function loadStorage<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
@@ -39,6 +57,44 @@ export function saveStorage<T>(key: string, value: T): void {
   } catch {
     // Ignore quota errors
   }
+}
+
+export function loadLastUsedSession(): LastUsedSessionConfig {
+  const saved = loadStorage<Partial<LastUsedSessionConfig>>(
+    STORAGE_KEYS.LAST_USED_SESSION,
+    DEFAULT_USUAL_SESSION
+  );
+  if (
+    saved &&
+    typeof saved.focusMinutes === 'number' &&
+    saved.focusMinutes > 0
+  ) {
+    return {
+      presetId: saved.presetId ?? 'quick',
+      presetTitle: saved.presetTitle || `${saved.focusMinutes} minute`,
+      focusMinutes: saved.focusMinutes,
+      breakMinutes:
+        typeof saved.breakMinutes === 'number' ? saved.breakMinutes : 5,
+      hydrationIntervalMinutes:
+        typeof saved.hydrationIntervalMinutes === 'number'
+          ? saved.hydrationIntervalMinutes
+          : 30,
+    };
+  }
+  return DEFAULT_USUAL_SESSION;
+}
+
+export function saveLastUsedSession(config: LastUsedSessionConfig): void {
+  saveStorage(STORAGE_KEYS.LAST_USED_SESSION, config);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('study-buddy:usual-session-updated'));
+  }
+}
+
+export function formatUsualSessionSummary(
+  config: LastUsedSessionConfig = loadLastUsedSession()
+): string {
+  return `${config.presetTitle} (${config.focusMinutes} min focus / ${config.breakMinutes} min break)`;
 }
 
 export function getLocalDateKey(date: Date = new Date()): string {
@@ -159,6 +215,8 @@ export function resetStudyBuddyUserData(): void {
     STORAGE_KEYS.REMINDERS,
     STORAGE_KEYS.SCHEDULE_BLOCKS,
     STORAGE_KEYS.SMART_TARGETS,
+    STORAGE_KEYS.SMART_ACTIVATION_ENABLED,
+    STORAGE_KEYS.LAST_USED_SESSION,
     STORAGE_KEYS.APP_RULES,
     STORAGE_KEYS.SESSION_STATS,
   ];
@@ -185,7 +243,7 @@ export function loadDemoDataForDev(): void {
     const hrs = sampleHours[i % sampleHours.length];
     const mins = Math.round(hrs * 60);
     demoHistory[key] = {
-      date: todayOrOffset(d),
+      date: getLocalDateKey(d),
       focusMinutes: mins,
       sessionsCompleted: Math.max(1, Math.round(hrs * 2)),
       hydrationCount: Math.max(1, Math.round(hrs * 2)),
@@ -218,8 +276,10 @@ export function loadDemoDataForDev(): void {
     {
       id: 'sa-demo-1',
       kind: 'app',
-      tagName: 'Figma (UI Design)',
+      tagName: 'Figma',
       targetPathOrUrl: 'Figma.exe',
+      processName: 'figma',
+      processNames: ['figma'],
     },
     {
       id: 'sa-demo-2',
@@ -228,6 +288,8 @@ export function loadDemoDataForDev(): void {
       targetPathOrUrl: 'canvas.instructure.com',
     },
   ]);
+
+  saveStorage(STORAGE_KEYS.SMART_ACTIVATION_ENABLED, true);
 
   saveStorage(STORAGE_KEYS.APP_RULES, [
     {
@@ -254,6 +316,7 @@ export function loadDemoDataForDev(): void {
       targetName: 'Discord',
       domainOrProcess: 'Discord.exe',
       processName: 'discord',
+      processNames: ['discord'],
       category: 'Chat',
       strictBlock: true,
       enabled: true,
@@ -262,8 +325,4 @@ export function loadDemoDataForDev(): void {
 
   window.dispatchEvent(new CustomEvent('study-buddy:data-reset'));
   window.dispatchEvent(new CustomEvent('study-buddy:data-updated'));
-}
-
-function todayOrOffset(d: Date): string {
-  return getLocalDateKey(d);
 }

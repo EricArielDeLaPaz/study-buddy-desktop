@@ -22,6 +22,10 @@ import { SettingsView } from './components/views/SettingsView';
 import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad, WindowRect } from './components/scratchpad/Scratchpad';
 import { FloatingMascotDock } from './components/companion/FloatingMascotDock';
+import {
+  OnboardingModal,
+  ONBOARDING_STORAGE_KEY,
+} from './components/onboarding/OnboardingModal';
 import { OverlayKind } from './types/buddy';
 import { Z_LAYERS } from './constants/layers';
 import {
@@ -52,10 +56,6 @@ const TAB_LABELS: Record<NavTabId, string> = {
 const VIEWPORT_PADDING = 12;
 const COLLISION_GAP = 12;
 
-/**
- * Stage P7: Ensures any previously saved desktop app rules have `processName` computed
- * via `normalizeAppTarget` on load so no existing rule is lost.
- */
 function hydrateSavedAppRules(): AppRuleItem[] {
   const saved = loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, []);
   return saved.map((rule) => {
@@ -198,6 +198,35 @@ const StudyBuddyViewport: React.FC = () => {
   const [isDashboardFullScreen, setIsDashboardFullScreen] =
     useState<boolean>(false);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
+
+  // Stage 9: First-run Tester Onboarding Modal State
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => {
+    return !loadStorage<boolean>(ONBOARDING_STORAGE_KEY, false);
+  });
+
+  const handleCloseOnboarding = useCallback(() => {
+    setIsOnboardingOpen(false);
+    setInteractiveRegionHovered('onboarding-modal', false);
+    saveStorage(ONBOARDING_STORAGE_KEY, true);
+  }, [setInteractiveRegionHovered]);
+
+  const handleOpenOnboarding = useCallback(() => {
+    setIsDashboardVisible(true);
+    setIsOnboardingOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenEvent = () => {
+      handleOpenOnboarding();
+    };
+    window.addEventListener('study-buddy:open-onboarding', handleOpenEvent);
+    return () => {
+      window.removeEventListener(
+        'study-buddy:open-onboarding',
+        handleOpenEvent
+      );
+    };
+  }, [handleOpenOnboarding]);
 
   const pendingNudgeTimingRef = useRef<{
     receivedPerfMs: number;
@@ -694,7 +723,9 @@ const StudyBuddyViewport: React.FC = () => {
                   onNavigateToBuddy={() => setActiveTab('buddy')}
                 />
               )}
-              {activeTab === 'settings' && <SettingsView />}
+              {activeTab === 'settings' && (
+                <SettingsView onOpenOnboarding={handleOpenOnboarding} />
+              )}
             </main>
           </div>
 
@@ -785,7 +816,26 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Floating Collapsible Dev Trigger Bar */}
+      {/* 5. Stage 9: Tester Onboarding Modal */}
+      {isOnboardingOpen && (
+        <div
+          onMouseEnter={() =>
+            handleInteractiveRegionHover('onboarding-modal', true)
+          }
+          onMouseLeave={() =>
+            handleInteractiveRegionHover('onboarding-modal', false)
+          }
+        >
+          <OnboardingModal
+            isOpen={isOnboardingOpen}
+            onClose={handleCloseOnboarding}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            onOpenNotepad={() => setScratchpadOpen(true)}
+          />
+        </div>
+      )}
+
+      {/* 6. Floating Collapsible Dev Trigger Bar */}
       <div
         style={{ zIndex: Z_LAYERS.DEV_BAR }}
         className="fixed bottom-4 left-1/2 -translate-x-1/2 pointer-events-none"
