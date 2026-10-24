@@ -12,7 +12,6 @@ import {
   OverlayKind,
   OverlayState,
   ScratchpadNote,
-  ScratchpadSyncStatus,
   TimerConfig,
 } from '../types/buddy';
 import { playChime } from '../utils/audio';
@@ -59,7 +58,7 @@ export interface AppContextValue {
   currentAnimationSlot: AnimationSlotId;
   setCurrentAnimationSlot: (slot: AnimationSlotId) => void;
 
-  // Stage 5 Autonomous Focus Session State & Controls
+  // Autonomous Focus Session State & Controls
   sessionStatus: SessionStatus;
   focusTimeRemaining: number;
   focusTargetMinutes: number;
@@ -89,7 +88,7 @@ export interface AppContextValue {
   dismissActiveOverlay: (reason?: OverlayDismissReason) => void;
   resolveOverlay: (reason?: OverlayDismissReason) => void;
 
-  // Scratchpad State & Actions
+  // Scratchpad / Notepad State & Actions
   scratchpad: ScratchpadNote;
   isScratchpadOpen: boolean;
   isScratchpadMinimized: boolean;
@@ -98,8 +97,6 @@ export interface AppContextValue {
   updateScratchpadTitle: (title: string) => void;
   updateScratchpadContent: (content: string) => void;
   clearScratchpadContent: () => void;
-  toggleSyncStatus: () => void;
-  togglePhoneConnection: () => void;
   exportScratchpadToMarkdown: () => Promise<void>;
   openNoteIntoScratchpad: () => Promise<boolean>;
 
@@ -175,7 +172,7 @@ function createOverlayPayload(
       };
 
     case 'overlay_intervention': {
-      const target = options?.targetAppOrSite || 'Discord';
+      const target = options?.targetAppOrSite || 'YouTube';
       return {
         id,
         kind: 'overlay_intervention',
@@ -198,14 +195,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [currentAnimationSlot, setCurrentAnimationSlot] =
     useState<AnimationSlotId>('idle_studying');
 
-  // 2. Stage 5 Focus Session & Cadence State
+  // 2. Focus Session & Cadence State
   const [focusTargetMinutes, setFocusTargetMinutesState] = useState<number>(25);
   const [hydrationIntervalMinutes, setHydrationIntervalMinutesState] =
     useState<number>(30);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>('focusing');
   const [focusTimeRemaining, setFocusTimeRemaining] = useState<number>(25 * 60);
 
-  // Track accumulated seconds toward each focused minute and hydration/bathroom alternation
   const focusedSecondsBufferRef = useRef<number>(0);
   const minutesSinceLastBathroomRef = useRef<number>(0);
 
@@ -231,7 +227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [timerSeconds, setTimerSeconds] = useState<number>(0);
   const [isTimerCompleted, setIsTimerCompleted] = useState<boolean>(false);
 
-  // 5. Legacy TimerConfig State (kept synchronized for compatibility)
+  // 5. Legacy TimerConfig State
   const [timerConfig, setTimerConfig] = useState<TimerConfig>({
     focusDurationSeconds: 25 * 60,
     hydrationIntervalSeconds: 30 * 60,
@@ -244,7 +240,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     secondsUntilBathroom: 60 * 60,
   });
 
-  // 6. Scratchpad State ('study_buddy_scratchpad')
+  // 6. Scratchpad State ('study_buddy_scratchpad' — saved locally on device)
+  // TODO(sync): desktop and mobile notes will sync once the mobile app and backend exist.
   const [scratchpad, setScratchpad] = useState<ScratchpadNote>(() => {
     try {
       const saved = localStorage.getItem(SCRATCHPAD_STORAGE_KEY);
@@ -256,9 +253,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             title: parsed.title || 'Chapter 4 – Cell respiration',
             content: parsed.content,
             updatedAt: parsed.updatedAt || Date.now(),
-            syncStatus: parsed.syncStatus || 'synced',
-            phoneConnected: parsed.phoneConnected ?? true,
-            deviceName: parsed.deviceName || 'iPhone',
           };
         }
       }
@@ -270,9 +264,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       title: 'Chapter 4 – Cell respiration',
       content: DEFAULT_SCRATCHPAD_TEXT,
       updatedAt: Date.now(),
-      syncStatus: 'synced',
-      phoneConnected: true,
-      deviceName: 'iPhone',
     };
   });
 
@@ -362,7 +353,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const dismissedKind = activeOverlay?.kind;
 
-      // Check if user confirmed hydration or bathroom break completion
       const confirmedHydration =
         reason === 'completed_hydration' ||
         (dismissedKind === 'overlay_hydration' && reason !== 'manual_dismiss');
@@ -381,13 +371,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           lastUpdatedDate: getTodayDateKey(),
         }));
 
-        // Automatically restart the next focus block
         setFocusTimeRemaining(focusTargetMinutes * 60);
         setSessionStatus('focusing');
         setCurrentAnimationSlot('idle_studying');
         playChime('break_start');
       } else if (sessionStatus === 'on_break') {
-        // If manually dismissed from Dev Bar during a break, return to focusing
         setFocusTimeRemaining(focusTargetMinutes * 60);
         setSessionStatus('focusing');
         setCurrentAnimationSlot('idle_studying');
@@ -398,18 +386,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       setOverlayQueue([]);
       setActiveOverlay(null);
     },
-    [
-      activeOverlay,
-      focusTargetMinutes,
-      sessionStatus,
-      syncWindowClickThrough,
-    ]
+    [activeOverlay, focusTargetMinutes, sessionStatus, syncWindowClickThrough]
   );
 
   // Master 1-Second Scheduler & Overlay Countdown Engine
   useEffect(() => {
     const interval = window.setInterval(() => {
-      // 1. If a timed break overlay is active, decrement its countdown
       if (
         activeOverlay &&
         activeOverlay.isActive &&
@@ -441,9 +423,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
-      // 2. If session is actively focusing and no overlay is blocking, decrement focusTimeRemaining
       if (sessionStatus === 'focusing' && activeOverlay === null) {
-        // Track every 60 seconds of active focus to increment totalFocusMinutes
         focusedSecondsBufferRef.current += 1;
         if (focusedSecondsBufferRef.current >= 60) {
           focusedSecondsBufferRef.current -= 60;
@@ -458,7 +438,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
         setFocusTimeRemaining((prevRemaining) => {
           if (prevRemaining <= 1) {
-            // Focus interval hit 0: decide between bathroom break vs hydration reminder
             const shouldTriggerBathroom =
               minutesSinceLastBathroomRef.current >=
               hydrationIntervalMinutes * 2;
@@ -485,14 +464,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [
-    activeOverlay,
-    hydrationIntervalMinutes,
-    sessionStatus,
-    triggerOverlay,
-  ]);
+  }, [activeOverlay, hydrationIntervalMinutes, sessionStatus, triggerOverlay]);
 
-  // Stage 5 Focus Controller Actions
+  // Focus Session Controls
   const setFocusTargetMinutes = useCallback(
     (minutes: number) => {
       const clamped = Math.max(1, Math.min(180, minutes));
@@ -536,7 +510,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   }, [focusTargetMinutes, focusTimeRemaining]);
 
-  // Allows skipping the remainder of the current focus block to immediately trigger the scheduled break
   const skipFocusBlock = useCallback(() => {
     const earnedMinutes = Math.max(
       1,
@@ -583,7 +556,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // Legacy TimerConfig methods mapped to new Focus Session controls
   const toggleFocusTimer = toggleFocusSession;
   const resetFocusTimer = useCallback(() => {
     setFocusTimeRemaining(focusTargetMinutes * 60);
@@ -620,24 +592,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       title: 'Untitled Study Note',
       content: '',
       updatedAt: Date.now(),
-    }));
-  }, []);
-
-  const toggleSyncStatus = useCallback(() => {
-    setScratchpad((prev) => {
-      const nextStatus: ScratchpadSyncStatus =
-        prev.syncStatus === 'synced' ? 'offline' : 'synced';
-      return {
-        ...prev,
-        syncStatus: nextStatus,
-      };
-    });
-  }, []);
-
-  const togglePhoneConnection = useCallback(() => {
-    setScratchpad((prev) => ({
-      ...prev,
-      phoneConnected: !prev.phoneConnected,
     }));
   }, []);
 
@@ -733,8 +687,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         updateScratchpadTitle,
         updateScratchpadContent,
         clearScratchpadContent,
-        toggleSyncStatus,
-        togglePhoneConnection,
         exportScratchpadToMarkdown,
         openNoteIntoScratchpad,
         setInteractiveRegionHovered,

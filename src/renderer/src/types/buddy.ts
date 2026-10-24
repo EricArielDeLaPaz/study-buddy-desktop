@@ -58,21 +58,14 @@ export interface TimerConfig {
 }
 
 /**
- * Sync status displayed in the Scratchpad header pill.
- */
-export type ScratchpadSyncStatus = 'synced' | 'offline' | 'syncing';
-
-/**
- * Scratchpad document state model.
+ * Scratchpad document state model (persisted locally on this device).
+ * TODO(sync): desktop and mobile notes will sync once the mobile app and backend exist.
  */
 export interface ScratchpadNote {
   id: string;
   title: string;
   content: string;
   updatedAt: number;
-  syncStatus: ScratchpadSyncStatus;
-  phoneConnected: boolean;
-  deviceName?: string;
 }
 
 /**
@@ -81,7 +74,10 @@ export interface ScratchpadNote {
 declare global {
   interface Window {
     buddyAPI?: {
-      setIgnoreMouseEvents: (ignore: boolean, options?: { forward: boolean }) => void;
+      setIgnoreMouseEvents: (
+        ignore: boolean,
+        options?: { forward: boolean }
+      ) => void;
       exportMarkdown: (
         filename: string,
         content: string

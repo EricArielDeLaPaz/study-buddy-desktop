@@ -226,7 +226,6 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
     isScratchpadMinimized,
     setScratchpadOpen,
     setScratchpadMinimized,
-    toggleSyncStatus,
     setInteractiveRegionHovered,
   } = useApp();
 
@@ -308,7 +307,7 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
     };
   }, [isListMenuOpen]);
 
-  // Debounced Persistence
+  // Debounced Persistence to local device storage
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const markdownText = serializeBlocksToMarkdown(blocks);
@@ -743,7 +742,6 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  const isSynced = scratchpad.syncStatus === 'synced';
   let numberedListRun = 0;
 
   return (
@@ -768,7 +766,7 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
           className="hidden"
         />
 
-        {/* 1. HEADER: "Notepad" & High-Contrast Cloud Synced Pill */}
+        {/* 1. HEADER: "Notepad" & Non-Clickable "Saved on this device" Pill */}
         <div
           onMouseDown={handleHeaderMouseDown}
           className="flex items-center justify-between border-b border-[#262038] bg-[#151120] px-5 py-3.5 cursor-move"
@@ -778,84 +776,63 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
               Notepad
             </h2>
 
-            <button
-              type="button"
-              data-no-drag="true"
-              onClick={toggleSyncStatus}
-              title="Click to toggle Cloud Synced / Offline status"
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition cursor-pointer ${
-                isSynced
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-[#0E362D] dark:text-[#4ADE80] dark:border-[#17594A]'
-                  : 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-[#3A2813] dark:text-[#FBBF24] dark:border-[#5C3F1C]'
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isSynced
-                    ? 'bg-emerald-600 dark:bg-[#4ADE80]'
-                    : 'bg-amber-600 dark:bg-[#FBBF24]'
-                }`}
-              />
-              <span>{isSynced ? 'Cloud Synced' : 'Offline · Local'}</span>
-            </button>
+            {/* TODO(sync): desktop and mobile notes will sync once the mobile app and backend exist. */}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-[#2A244D] dark:text-[#C4B5FD] dark:border-[#52438F] px-2.5 py-0.5 text-[11px] font-semibold">
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-600 dark:bg-[#A594F9]" />
+              <span>Saved on this device</span>
+            </span>
           </div>
 
-          <div data-no-drag="true" className="flex items-center gap-2.5">
-            <span className="text-[11px] font-medium text-[#9490A8]">
-              {isSynced ? 'Synced just now' : 'Saved locally'}
-            </span>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setScratchpadMinimized(!isScratchpadMinimized)}
-                title={
-                  isScratchpadMinimized ? 'Expand Notepad' : 'Minimize Notepad'
-                }
-                className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#29233B] hover:text-white transition cursor-pointer"
+          <div data-no-drag="true" className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setScratchpadMinimized(!isScratchpadMinimized)}
+              title={
+                isScratchpadMinimized ? 'Expand Notepad' : 'Minimize Notepad'
+              }
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#29233B] hover:text-white transition cursor-pointer"
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
               >
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                >
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-              </button>
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setInteractiveRegionHovered('scratchpad', false);
-                  setScratchpadOpen(false);
-                }}
-                title="Close Notepad"
-                className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#3B1D2E] hover:text-white transition cursor-pointer"
+            <button
+              type="button"
+              onClick={() => {
+                setInteractiveRegionHovered('scratchpad', false);
+                setScratchpadOpen(false);
+              }}
+              title="Close Notepad"
+              className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0E0B16] text-[#B8B2CC] hover:bg-[#3B1D2E] hover:text-white transition cursor-pointer"
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
               >
-                <svg
-                  width="11"
-                  height="11"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           </div>
         </div>
 
         {!isScratchpadMinimized && (
           <>
-            {/* 2. HIERARCHY ROW: WCAG AA Compliant Pills & Export .md Action */}
+            {/* 2. HIERARCHY ROW */}
             <div className="flex items-center justify-between border-b border-[#231D34] bg-[#171324] px-5 py-2.5">
               <div className="flex items-center gap-1.5">
                 {HIERARCHY_OPTIONS.map((item) => {
@@ -1187,7 +1164,7 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
               </div>
             </div>
 
-            {/* 5. FOOTER */}
+            {/* 5. FOOTER: Single "Saved on this device" status */}
             <div className="relative flex items-center justify-between gap-2 border-t border-[#241E34] bg-[#151120] px-4 py-3">
               <div className="flex items-center gap-2">
                 <button
@@ -1224,12 +1201,8 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
               </div>
 
               <span className="inline-flex items-center gap-1.5 pr-2 text-[11px] font-medium text-[#9490A8] shrink-0">
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    isSynced ? 'bg-[#4ADE80]' : 'bg-[#FBBF24]'
-                  }`}
-                />
-                <span>{isSynced ? 'iPhone synced' : 'Saved locally'}</span>
+                <span className="h-2 w-2 rounded-full bg-violet-600 dark:bg-[#A594F9]" />
+                <span>Saved on this device</span>
               </span>
             </div>
 

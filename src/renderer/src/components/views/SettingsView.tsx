@@ -1,7 +1,6 @@
 // src/renderer/src/components/views/SettingsView.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { playChime, ChimeType } from '../../utils/audio';
-import { ConfirmModal } from '../common/ConfirmModal';
 
 export type AppearanceMode = 'dark' | 'light' | 'system';
 
@@ -75,16 +74,7 @@ export const SettingsView: React.FC = () => {
   );
   const chimeFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 3. Account Card State
-  const [accountEmail, setAccountEmail] = useState<string>(
-    'maya.student@email.com'
-  );
-  const [accountNotice, setAccountNotice] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<
-    'sign_out' | 'delete_account' | null
-  >(null);
-
-  // 4. Alerts Card State
+  // 3. Alerts Card State
   const [routeRemindersToPhoneOnly, setRouteRemindersToPhoneOnly] =
     useState<boolean>(false);
 
@@ -166,15 +156,6 @@ export const SettingsView: React.FC = () => {
     e.target.value = '';
   };
 
-  const handleConfirmAccountAction = () => {
-    if (confirmAction === 'sign_out') {
-      setAccountNotice('Signed out of maya.student@email.com');
-    } else if (confirmAction === 'delete_account') {
-      setAccountEmail('Account scheduled for deletion');
-      setAccountNotice('Your account and cloud profile have been removed.');
-    }
-  };
-
   return (
     <div className="flex flex-col gap-6 p-6 text-white font-sans">
       {/* Header */}
@@ -189,7 +170,7 @@ export const SettingsView: React.FC = () => {
 
       {/* 4 Dedicated Content-Hugging Cards Grid (items-start + h-fit + gap-6) */}
       <div className="grid grid-cols-12 items-start gap-6">
-        {/* 1. APPEARANCE CARD (h-fit: hugs directly below Dark | Light | Match system buttons) */}
+        {/* 1. APPEARANCE CARD */}
         <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -203,7 +184,7 @@ export const SettingsView: React.FC = () => {
               </span>
             </div>
             <p className="mt-1 text-[12.5px] text-[#9490A8]">
-              Choose your workspace color theme or sync with your operating system.
+              Choose your workspace color theme or match your operating system.
             </p>
           </div>
 
@@ -234,7 +215,7 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. BEHAVIOR CARD (h-fit) */}
+        {/* 2. BEHAVIOR CARD */}
         <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <h3 className="text-[15px] font-bold text-white">Behavior</h3>
 
@@ -352,41 +333,45 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. ACCOUNT CARD (h-fit: hugs comfortably beneath Sign out & Delete account buttons) */}
+        {/* 3. ACCOUNT CARD (Signed in as Tester · tester@email.com; Sign out & Delete account disabled) */}
         <div className="col-span-6 h-fit flex flex-col gap-4 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
-            <h3 className="text-[15px] font-bold text-white">Account</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-white">Account</h3>
+              <span className="rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-violet-950/60 dark:text-violet-300 dark:border-violet-800/40 px-2.5 py-0.5 text-[11px] font-semibold">
+                Tester
+              </span>
+            </div>
             <p className="mt-1.5 text-[13px] font-medium text-[#C4B5FD]">
               Signed in as{' '}
-              <span className="font-semibold text-white">{accountEmail}</span>
+              <span className="font-semibold text-white">Tester</span> (
+              <span className="font-semibold text-white">tester@email.com</span>
+              )
             </p>
-            {accountNotice && (
-              <p className="mt-1.5 text-[12px] font-semibold text-[#4ADE80]">
-                ✓ {accountNotice}
-              </p>
-            )}
           </div>
 
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setConfirmAction('sign_out')}
-              className="rounded-xl border border-[#2E2A45] bg-[#232136] px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-violet-50 hover:border-violet-300 hover:text-violet-900 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60 dark:hover:text-white active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+              disabled
+              title="Accounts arrive with the mobile app"
+              className="rounded-xl border border-[#2E2A45] bg-[#232136] px-4 py-2 text-[12.5px] font-semibold text-white opacity-45 cursor-not-allowed"
             >
               Sign out
             </button>
 
             <button
               type="button"
-              onClick={() => setConfirmAction('delete_account')}
-              className="rounded-xl bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 hover:border-rose-400 dark:bg-[#FF6584]/20 dark:text-[#FF6584] dark:border-[#FF6584]/30 dark:hover:bg-rose-900/60 dark:hover:border-rose-700 active:scale-[0.98] px-4 py-2 text-[12.5px] font-semibold transition-all duration-150 ease-out cursor-pointer"
+              disabled
+              title="Accounts arrive with the mobile app"
+              className="rounded-xl bg-rose-100 text-rose-800 border border-rose-300 dark:bg-[#FF6584]/20 dark:text-[#FF6584] dark:border-[#FF6584]/30 px-4 py-2 text-[12.5px] font-semibold opacity-45 cursor-not-allowed"
             >
               Delete account
             </button>
           </div>
         </div>
 
-        {/* 4. ALERTS CARD (h-fit) */}
+        {/* 4. ALERTS CARD */}
         <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <h3 className="text-[15px] font-bold text-white">Alerts</h3>
@@ -425,26 +410,6 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Universal Destructive Action Confirmation Modal */}
-      <ConfirmModal
-        isOpen={confirmAction !== null}
-        title={
-          confirmAction === 'delete_account'
-            ? 'Delete Study Buddy Account?'
-            : 'Sign Out of Study Buddy?'
-        }
-        description={
-          confirmAction === 'delete_account'
-            ? 'This will permanently delete maya.student@email.com, your earned companion progression, and custom presets. This action cannot be undone.'
-            : 'You will be signed out of maya.student@email.com. Your local Notepad notes and timers will remain saved on this device.'
-        }
-        confirmLabel={
-          confirmAction === 'delete_account' ? 'Delete account' : 'Sign out'
-        }
-        onConfirm={handleConfirmAccountAction}
-        onCancel={() => setConfirmAction(null)}
-      />
     </div>
   );
 };
