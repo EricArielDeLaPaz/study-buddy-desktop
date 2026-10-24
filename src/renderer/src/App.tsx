@@ -22,6 +22,12 @@ import { CenterOverlay } from './components/overlays/CenterOverlay';
 import { Scratchpad, WindowRect } from './components/scratchpad/Scratchpad';
 import { FloatingMascotDock } from './components/companion/FloatingMascotDock';
 import { OverlayKind } from './types/buddy';
+import { Z_LAYERS } from './constants/layers';
+import {
+  loadStorage,
+  saveStorage,
+  STORAGE_KEYS,
+} from './utils/storage';
 import type {
   OverlayTriggerType,
   OverlayTriggerPayload,
@@ -37,54 +43,6 @@ const TAB_LABELS: Record<NavTabId, string> = {
   marketplace: 'Marketplace',
   settings: 'Settings',
 };
-
-const INITIAL_APP_RULES: AppRuleItem[] = [
-  {
-    id: 'rule-discord',
-    kind: 'app',
-    targetName: 'Discord',
-    domainOrProcess: 'Discord.exe',
-    category: 'Chat',
-    strictBlock: false,
-    enabled: true,
-  },
-  {
-    id: 'rule-youtube',
-    kind: 'website',
-    targetName: 'YouTube',
-    domainOrProcess: 'youtube.com',
-    category: 'Video',
-    strictBlock: false,
-    enabled: true,
-  },
-  {
-    id: 'rule-reddit',
-    kind: 'website',
-    targetName: 'Reddit',
-    domainOrProcess: 'reddit.com',
-    category: 'Social',
-    strictBlock: false,
-    enabled: true,
-  },
-  {
-    id: 'rule-twitter',
-    kind: 'website',
-    targetName: 'Twitter',
-    domainOrProcess: 'x.com / twitter.com',
-    category: 'Social',
-    strictBlock: true,
-    enabled: true,
-  },
-  {
-    id: 'rule-twitch',
-    kind: 'website',
-    targetName: 'Twitch',
-    domainOrProcess: 'twitch.tv',
-    category: 'Video',
-    strictBlock: false,
-    enabled: true,
-  },
-];
 
 const VIEWPORT_PADDING = 12;
 const COLLISION_GAP = 12;
@@ -114,10 +72,6 @@ function rectsOverlap(a: WindowRect, b: WindowRect, gap = COLLISION_GAP): boolea
   );
 }
 
-/**
- * Resolves a collision when `moving` is dragged or resized against `obstacle`,
- * clamping `moving` along the axis of minimum penetration so it never enters `obstacle`.
- */
 function clampMovingRectAgainstObstacle(
   moving: WindowRect,
   obstacle: WindowRect,
@@ -131,7 +85,6 @@ function clampMovingRectAgainstObstacle(
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
 
-  // Calculate penetration depths in all 4 cardinal directions
   const pushLeftX = obstacle.x - COLLISION_GAP - clamped.width;
   const pushRightX = obstacle.x + obstacle.width + COLLISION_GAP;
   const pushUpY = obstacle.y - COLLISION_GAP - clamped.height;
@@ -186,7 +139,6 @@ function clampMovingRectAgainstObstacle(
     return clampRectToViewport(candidates[0].rect);
   }
 
-  // Fallback hard horizontal clamp: desktopRect.x + desktopRect.width <= notepadRect.x
   if (clamped.x <= obstacle.x) {
     return clampRectToViewport({
       ...clamped,
@@ -205,6 +157,7 @@ function clampMovingRectAgainstObstacle(
 const StudyBuddyViewport: React.FC = () => {
   const {
     activeOverlay,
+    sessionStatus,
     triggerOverlay,
     dismissActiveOverlay,
     isScratchpadOpen,
@@ -217,9 +170,33 @@ const StudyBuddyViewport: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTabId>('session');
   const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
-  const [appRules, setAppRules] = useState<AppRuleItem[]>(INITIAL_APP_RULES);
 
-  // Track Desktop App Window Rect & Notepad Window Rect for Mutual Collision Bounding
+  // Stage 5: Start App Rules EMPTY on a fresh install; load and save to localStorage
+  const [appRules, setAppRules] = useState<AppRuleItem[]>(() =>
+    loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, [])
+  );
+
+  useEffect(() => {
+    saveStorage(STORAGE_KEYS.APP_RULES, appRules);
+  }, [appRules]);
+
+  useEffect(() => {
+    const handleResetOrDemo = () => {
+      setAppRules(loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, []));
+    };
+    window.addEventListener('study-buddy:data-reset', handleResetOrDemo);
+    return () =>
+      window.removeEventListener('study-buddy:data-reset', handleResetOrDemo);
+  }, []);
+
+  // Stage 8: Sync active focus session status and App Rules list to Main Process watcher
+  useEffect(() => {
+    window.electronAPI?.syncWatcherState?.({
+      isFocusing: sessionStatus === 'focusing',
+      rules: appRules,
+    });
+  }, [sessionStatus, appRules]);
+
   const [desktopRect, setDesktopRect] = useState<WindowRect>(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
@@ -265,7 +242,6 @@ const StudyBuddyViewport: React.FC = () => {
     [setInteractiveRegionHovered, syncWindowClickThrough]
   );
 
-  // Ensure non-overlapping layout whenever Notepad is opened alongside Desktop Window
   useEffect(() => {
     if (!isDashboardVisible || !isScratchpadOpen) return;
     const currentDesktop = desktopRectRef.current;
@@ -294,7 +270,6 @@ const StudyBuddyViewport: React.FC = () => {
     }
   }, [isDashboardVisible, isScratchpadOpen, isScratchpadMinimized]);
 
-  // Listen for custom navigation events (e.g., from MarketplaceView)
   useEffect(() => {
     const handleNavigateEvent = (e: Event) => {
       const customEvent = e as CustomEvent<NavTabId>;
@@ -310,9 +285,6 @@ const StudyBuddyViewport: React.FC = () => {
       );
   }, []);
 
-  /**
-   * Updates `desktopRect` during drag or resize while preventing collision with `notepadRect`.
-   */
   const updateDesktopRectWithCollision = useCallback(
     (candidate: WindowRect, interaction: 'drag' | 'resize') => {
       const clampedCandidate = clampRectToViewport(candidate);
@@ -331,7 +303,6 @@ const StudyBuddyViewport: React.FC = () => {
         return;
       }
 
-      // Clamp Desktop Window so it never overlaps the Notepad
       const resolvedDesktop = clampMovingRectAgainstObstacle(
         clampedCandidate,
         effectiveNotepad,
@@ -342,9 +313,6 @@ const StudyBuddyViewport: React.FC = () => {
     [isScratchpadOpen, isScratchpadMinimized]
   );
 
-  /**
-   * Updates `notepadRect` during drag or resize while preventing penetration into `desktopRect`.
-   */
   const updateNotepadRectWithCollision = useCallback(
     (candidate: WindowRect, interaction: 'drag' | 'resize') => {
       const clampedCandidate = clampRectToViewport(candidate);
@@ -382,11 +350,14 @@ const StudyBuddyViewport: React.FC = () => {
     [isDashboardVisible, isScratchpadMinimized]
   );
 
-  // Desktop App Header Dragging within the Workspace
   const handleDesktopHeaderMouseDown = (
     e: React.MouseEvent<HTMLDivElement>
   ) => {
-    if ((e.target as HTMLElement).closest('button, input, select, a, [data-no-drag="true"]')) {
+    if (
+      (e.target as HTMLElement).closest(
+        'button, input, select, a, [data-no-drag="true"]'
+      )
+    ) {
       return;
     }
 
@@ -419,7 +390,6 @@ const StudyBuddyViewport: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Desktop App Edge / Corner Resizing with Collision Bounding
   const handleStartDesktopResize = (
     e: React.MouseEvent,
     direction: 'right' | 'bottom' | 'corner'
@@ -550,9 +520,13 @@ const StudyBuddyViewport: React.FC = () => {
     ]);
   };
 
+  const handleDeleteRule = (id: string) => {
+    setAppRules((prev) => prev.filter((r) => r.id !== id));
+  };
+
   return (
     <div className="w-screen h-screen fixed inset-0 overflow-hidden pointer-events-none select-none font-sans">
-      {/* 1. EXCLUSIVE MODE A: Draggable & Resizable Study Buddy Desktop Window */}
+      {/* 1. EXCLUSIVE MODE A: Draggable & Resizable Study Buddy Desktop Window (Z_LAYERS.DASHBOARD = 40, above Notepad = 20) */}
       {isDashboardVisible && (
         <div
           onMouseEnter={() =>
@@ -562,15 +536,18 @@ const StudyBuddyViewport: React.FC = () => {
             handleInteractiveRegionHover('main-dashboard-shell', false)
           }
           style={{
+            zIndex: Z_LAYERS.DASHBOARD,
             left: `${desktopRect.x}px`,
             top: `${desktopRect.y}px`,
             width: `${desktopRect.width}px`,
             height: `${desktopRect.height}px`,
           }}
-          className="fixed z-30 pointer-events-auto flex flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
+          className="fixed pointer-events-auto flex flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
         >
-          {/* Draggable Global Window Header */}
-          <div onMouseDown={handleDesktopHeaderMouseDown} className="cursor-move">
+          <div
+            onMouseDown={handleDesktopHeaderMouseDown}
+            className="cursor-move"
+          >
             <Header
               isScratchpadOpen={isScratchpadOpen}
               onToggleScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
@@ -579,7 +556,6 @@ const StudyBuddyViewport: React.FC = () => {
             />
           </div>
 
-          {/* Sidebar + Active View Body */}
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <Sidebar activeTab={activeTab} onSelectTab={setActiveTab} />
 
@@ -593,6 +569,7 @@ const StudyBuddyViewport: React.FC = () => {
                   onToggleRuleEnabled={handleToggleRuleEnabled}
                   onToggleRuleStrict={handleToggleRuleStrict}
                   onAddRule={handleAddRule}
+                  onDeleteRule={handleDeleteRule}
                 />
               )}
               {activeTab === 'progress' && <ProgressView />}
@@ -606,7 +583,6 @@ const StudyBuddyViewport: React.FC = () => {
             </main>
           </div>
 
-          {/* Desktop Window Resize Handles (Right, Bottom, Bottom-Right Corner) */}
           <div
             onMouseDown={(e) => handleStartDesktopResize(e, 'right')}
             className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
@@ -632,10 +608,11 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock */}
+      {/* 2. EXCLUSIVE MODE B: Compact Floating Mambo Companion Dock (Z_LAYERS.COMPANION_DOCK = 50) */}
       {!isDashboardVisible && activeOverlay === null && (
         <div
-          className="pointer-events-auto"
+          style={{ zIndex: Z_LAYERS.COMPANION_DOCK }}
+          className="fixed pointer-events-auto"
           onMouseEnter={() =>
             handleInteractiveRegionHover('floating-mascot-dock-shell', true)
           }
@@ -650,7 +627,7 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Floating Resizable & Collision-Bounded Notepad */}
+      {/* 3. Floating Resizable & Collision-Bounded Notepad (Z_LAYERS.NOTEPAD = 20, below Dashboard & Companion) */}
       <div
         className="pointer-events-auto"
         onMouseEnter={() =>
@@ -666,11 +643,14 @@ const StudyBuddyViewport: React.FC = () => {
         />
       </div>
 
-      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
+      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal (Z_LAYERS.OVERLAY = 60) */}
       {activeOverlay !== null && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none transition-opacity duration-300"
-          style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+          style={{
+            zIndex: Z_LAYERS.OVERLAY,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+          }}
+          className="fixed inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300"
         >
           <div
             className="pointer-events-auto [&>div]:!bg-transparent [&>div]:pointer-events-none [&>div>div]:pointer-events-auto"
@@ -686,8 +666,11 @@ const StudyBuddyViewport: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Floating Collapsible Dev Trigger Bar */}
-      <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 pointer-events-none">
+      {/* 5. Floating Collapsible Dev Trigger Bar (Z_LAYERS.DEV_BAR = 55) */}
+      <div
+        style={{ zIndex: Z_LAYERS.DEV_BAR }}
+        className="fixed bottom-4 left-1/2 -translate-x-1/2 pointer-events-none"
+      >
         <div
           onMouseEnter={() =>
             handleInteractiveRegionHover('dev-trigger-bar', true)

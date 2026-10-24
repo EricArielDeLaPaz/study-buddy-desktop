@@ -1,6 +1,11 @@
 // src/renderer/src/components/views/ScheduleView.tsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ConfirmModal } from '../common/ConfirmModal';
+import {
+  loadStorage,
+  saveStorage,
+  STORAGE_KEYS,
+} from '../../utils/storage';
 
 export interface TimeBlockSchedule {
   id: string;
@@ -28,72 +33,6 @@ const PRESET_OPTIONS: ReadonlyArray<TimeBlockSchedule['preset']> = [
   'Custom',
 ];
 
-const INITIAL_BLOCKS: TimeBlockSchedule[] = [
-  {
-    id: 'sched-1',
-    title: 'Morning UX Studio & Wireframing',
-    startTime: '09:00',
-    endTime: '11:30',
-    days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-    preset: 'Standard 45/5',
-  },
-  {
-    id: 'sched-2',
-    title: 'Afternoon Coursework & Reading',
-    startTime: '14:00',
-    endTime: '16:00',
-    days: ['Mon', 'Wed', 'Fri'],
-    preset: 'Quick 25/5',
-  },
-  {
-    id: 'sched-3',
-    title: 'Evening Deep Focus Sprint',
-    startTime: '19:30',
-    endTime: '21:00',
-    days: ['Tue', 'Thu', 'Sun'],
-    preset: 'Deep 60/10',
-  },
-];
-
-const INITIAL_SMART_TARGETS: SmartActivationTarget[] = [
-  {
-    id: 'sa-1',
-    kind: 'app',
-    tagName: 'Figma (UI Design)',
-    targetPathOrUrl: 'Figma.exe',
-  },
-  {
-    id: 'sa-2',
-    kind: 'app',
-    tagName: 'VS Code (Development)',
-    targetPathOrUrl: 'Code.exe',
-  },
-  {
-    id: 'sa-3',
-    kind: 'app',
-    tagName: 'Unity 6 (Game Dev)',
-    targetPathOrUrl: 'Unity.exe',
-  },
-  {
-    id: 'sa-4',
-    kind: 'website',
-    tagName: 'University Canvas',
-    targetPathOrUrl: 'canvas.instructure.com',
-  },
-  {
-    id: 'sa-5',
-    kind: 'website',
-    tagName: 'Notion Workspace',
-    targetPathOrUrl: 'notion.so',
-  },
-  {
-    id: 'sa-6',
-    kind: 'website',
-    tagName: 'Coursera Lectures',
-    targetPathOrUrl: 'coursera.org',
-  },
-];
-
 function formatTime12h(time24: string): string {
   const [hStr, mStr] = time24.split(':');
   const hour24 = parseInt(hStr || '9', 10);
@@ -104,10 +43,35 @@ function formatTime12h(time24: string): string {
 }
 
 export const ScheduleView: React.FC = () => {
-  const [blocks, setBlocks] = useState<TimeBlockSchedule[]>(INITIAL_BLOCKS);
-  const [smartTargets, setSmartTargets] = useState<SmartActivationTarget[]>(
-    INITIAL_SMART_TARGETS
+  // Stage 5: Start empty on a fresh install; load and save to localStorage
+  const [blocks, setBlocks] = useState<TimeBlockSchedule[]>(() =>
+    loadStorage<TimeBlockSchedule[]>(STORAGE_KEYS.SCHEDULE_BLOCKS, [])
   );
+  const [smartTargets, setSmartTargets] = useState<SmartActivationTarget[]>(
+    () => loadStorage<SmartActivationTarget[]>(STORAGE_KEYS.SMART_TARGETS, [])
+  );
+
+  useEffect(() => {
+    saveStorage(STORAGE_KEYS.SCHEDULE_BLOCKS, blocks);
+  }, [blocks]);
+
+  useEffect(() => {
+    saveStorage(STORAGE_KEYS.SMART_TARGETS, smartTargets);
+  }, [smartTargets]);
+
+  useEffect(() => {
+    const handleResetOrDemo = () => {
+      setBlocks(
+        loadStorage<TimeBlockSchedule[]>(STORAGE_KEYS.SCHEDULE_BLOCKS, [])
+      );
+      setSmartTargets(
+        loadStorage<SmartActivationTarget[]>(STORAGE_KEYS.SMART_TARGETS, [])
+      );
+    };
+    window.addEventListener('study-buddy:data-reset', handleResetOrDemo);
+    return () =>
+      window.removeEventListener('study-buddy:data-reset', handleResetOrDemo);
+  }, []);
 
   // Add / Edit Time Block Modal State
   const [isBlockModalOpen, setIsBlockModalOpen] = useState<boolean>(false);
@@ -125,18 +89,15 @@ export const ScheduleView: React.FC = () => {
   const [blockPreset, setBlockPreset] =
     useState<TimeBlockSchedule['preset']>('Standard 45/5');
 
-  // Custom Time Drawer State inside Schedule Modal
   const [isCustomTimeDrawerOpen, setIsCustomTimeDrawerOpen] =
     useState<boolean>(false);
   const [customFocusMinutes, setCustomFocusMinutes] = useState<number>(35);
   const [customBreakMinutes, setCustomBreakMinutes] = useState<number>(8);
 
-  // Delete Confirmation Modal State
   const [pendingDeleteBlockId, setPendingDeleteBlockId] = useState<
     string | null
   >(null);
 
-  // Smart Activation Add Form State
   const [addTargetKind, setAddTargetKind] = useState<'website' | 'app'>(
     'website'
   );
@@ -211,7 +172,6 @@ export const ScheduleView: React.FC = () => {
     setIsBlockModalOpen(false);
   };
 
-  // Smart Activation Handlers
   const handleAppFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -284,86 +244,100 @@ export const ScheduleView: React.FC = () => {
             Scheduled Time Blocks ({blocks.length})
           </h3>
           <span className="text-[11.5px] text-[#9490A8]">
-            Click the pencil icon to edit or remove a block
+            Saved on this device
           </span>
         </div>
 
-        {blocks.map((block) => {
-          const presetDisplay =
-            block.preset === 'Custom'
-              ? `Custom ${block.customFocusMinutes ?? 35}/${
-                  block.customBreakMinutes ?? 8
-                }`
-              : block.preset;
-
-          return (
-            <div
-              key={block.id}
-              onClick={() => handleOpenEditBlockModal(block)}
-              className="flex items-center justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4 hover:border-violet-400 dark:hover:border-violet-600/60 transition-all duration-150 ease-out cursor-pointer"
+        {blocks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#342C4C] bg-[#181424]/60 py-8 px-4 text-center">
+            <p className="text-[13.5px] font-semibold text-[#C4B5FD]">
+              No scheduled time blocks yet.
+            </p>
+            <button
+              type="button"
+              onClick={handleOpenAddBlockModal}
+              className="rounded-xl bg-violet-600 !text-white px-4 py-2 text-[12px] font-bold hover:bg-violet-700 transition cursor-pointer"
             >
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <p className="text-[15px] font-bold text-white">
-                    {block.title}
-                  </p>
-                  {/* Pure Purple Preset Tag (No Blue Tint Drift) */}
-                  <span className="rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-violet-950/60 dark:text-violet-300 dark:border-violet-800/40 px-2.5 py-0.5 text-[11px] font-medium">
-                    {presetDisplay}
-                  </span>
-                </div>
-                <p className="mt-1 text-[12.5px] font-medium text-[#9490A8]">
-                  {formatTime12h(block.startTime)} –{' '}
-                  {formatTime12h(block.endTime)}
-                </p>
+              + Add your first time block
+            </button>
+          </div>
+        ) : (
+          blocks.map((block) => {
+            const presetDisplay =
+              block.preset === 'Custom'
+                ? `Custom ${block.customFocusMinutes ?? 35}/${
+                    block.customBreakMinutes ?? 8
+                  }`
+                : block.preset;
 
-                <div className="mt-2.5 flex items-center gap-1.5">
-                  {ALL_DAYS.map((d) => {
-                    const active = block.days.includes(d);
-                    return (
-                      <span
-                        key={d}
-                        className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold ${
-                          active
-                            ? 'bg-violet-600 !text-white dark:bg-[#3C3173] dark:!text-white'
-                            : 'bg-violet-100/70 text-violet-900 dark:bg-[#110E1A] dark:text-[#9490A8]'
-                        }`}
-                      >
-                        {d}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Pencil Edit Icon Button */}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenEditBlockModal(block);
-                }}
-                title={`Edit ${block.title}`}
-                aria-label={`Edit ${block.title}`}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg p-1.5 border border-violet-200 dark:border-[#383052] bg-violet-50/70 dark:bg-[#1F1A30] text-violet-600 hover:bg-violet-100 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-900/50 dark:hover:text-violet-300 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+            return (
+              <div
+                key={block.id}
+                onClick={() => handleOpenEditBlockModal(block)}
+                className="flex items-center justify-between rounded-2xl border border-[#342C4C] bg-[#181424] p-4 hover:border-violet-400 dark:hover:border-violet-600/60 transition-all duration-150 ease-out cursor-pointer"
               >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <p className="text-[15px] font-bold text-white">
+                      {block.title}
+                    </p>
+                    <span className="rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-violet-950/60 dark:text-violet-300 dark:border-violet-800/40 px-2.5 py-0.5 text-[11px] font-medium">
+                      {presetDisplay}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[12.5px] font-medium text-[#9490A8]">
+                    {formatTime12h(block.startTime)} –{' '}
+                    {formatTime12h(block.endTime)}
+                  </p>
+
+                  <div className="mt-2.5 flex items-center gap-1.5">
+                    {ALL_DAYS.map((d) => {
+                      const active = block.days.includes(d);
+                      return (
+                        <span
+                          key={d}
+                          className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold ${
+                            active
+                              ? 'bg-violet-600 !text-white dark:bg-[#3C3173] dark:!text-white'
+                              : 'bg-violet-100/70 text-violet-900 dark:bg-[#110E1A] dark:text-[#9490A8]'
+                          }`}
+                        >
+                          {d}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Pencil Edit Icon Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenEditBlockModal(block);
+                  }}
+                  title={`Edit ${block.title}`}
+                  aria-label={`Edit ${block.title}`}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg p-1.5 border border-violet-200 dark:border-[#383052] bg-violet-50/70 dark:bg-[#1F1A30] text-violet-600 hover:bg-violet-100 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-900/50 dark:hover:text-violet-300 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
                 >
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-              </button>
-            </div>
-          );
-        })}
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Smart Activation Management (Apps & Websites) */}
@@ -382,7 +356,6 @@ export const ScheduleView: React.FC = () => {
           </span>
         </div>
 
-        {/* Add Custom Website or App Form */}
         <form
           onSubmit={handleAddSmartTarget}
           className="flex flex-wrap items-center gap-2.5 rounded-xl border border-[#2A233D] bg-[#120F1D] p-3"
@@ -419,7 +392,7 @@ export const ScheduleView: React.FC = () => {
             placeholder={
               addTargetKind === 'website'
                 ? 'Custom Tag Name (e.g., University Canvas)'
-                : 'Custom Tag Name (e.g., VS Code (Development))'
+                : 'Custom Tag Name (e.g., VS Code)'
             }
             className="flex-1 min-w-[190px] rounded-lg border border-[#322A4B] bg-[#0E0B16] px-3 py-1.5 text-[12.5px] text-white placeholder-[#9490A8] focus:border-violet-500 focus:outline-none select-text"
           />
@@ -465,32 +438,37 @@ export const ScheduleView: React.FC = () => {
           </button>
         </form>
 
-        {/* Monitored App & Website Chips (Pure Purple Tokens — Zero Blue Drift) */}
-        <div className="flex flex-wrap gap-2.5">
-          {smartTargets.map((target) => (
-            <div
-              key={target.id}
-              className="group flex items-center gap-2 rounded-xl border bg-violet-50 text-violet-900 border-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:border-violet-800/40 px-3 py-2 text-[12.5px] font-semibold shadow-sm transition-all duration-150 ease-out"
-            >
-              <span className="text-[12px]">
-                {target.kind === 'website' ? '🌐' : '💻'}
-              </span>
-              <span>{target.tagName}</span>
-              <span className="rounded bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-violet-950/80 dark:text-violet-300 dark:border-violet-800/50 px-1.5 py-0.5 text-[10.5px] font-medium">
-                {target.targetPathOrUrl}
-              </span>
-              <button
-                type="button"
-                onClick={() => handleRemoveSmartTarget(target.id)}
-                title={`Remove ${target.tagName}`}
-                aria-label={`Remove ${target.tagName}`}
-                className="ml-1 flex h-5 w-5 items-center justify-center rounded-md text-[10px] text-violet-600 hover:bg-rose-200 hover:text-rose-900 dark:text-violet-400 dark:hover:bg-rose-900/60 dark:hover:text-rose-200 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+        {smartTargets.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[#342C4C] py-5 px-4 text-center text-[12.5px] text-[#9490A8]">
+            No monitored study apps or websites yet. Add one above so Mambo can wake automatically during scheduled blocks.
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2.5">
+            {smartTargets.map((target) => (
+              <div
+                key={target.id}
+                className="group flex items-center gap-2 rounded-xl border bg-violet-50 text-violet-900 border-violet-200 dark:bg-violet-950/50 dark:text-violet-300 dark:border-violet-800/40 px-3 py-2 text-[12.5px] font-semibold shadow-sm transition-all duration-150 ease-out"
               >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
+                <span className="text-[12px]">
+                  {target.kind === 'website' ? '🌐' : '💻'}
+                </span>
+                <span>{target.tagName}</span>
+                <span className="rounded bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-violet-950/80 dark:text-violet-300 dark:border-violet-800/50 px-1.5 py-0.5 text-[10.5px] font-medium">
+                  {target.targetPathOrUrl}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveSmartTarget(target.id)}
+                  title={`Remove ${target.tagName}`}
+                  aria-label={`Remove ${target.tagName}`}
+                  className="ml-1 flex h-5 w-5 items-center justify-center rounded-md text-[10px] text-violet-600 hover:bg-rose-200 hover:text-rose-900 dark:text-violet-400 dark:hover:bg-rose-900/60 dark:hover:text-rose-200 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Add / Edit Schedule Time Block Modal */}
@@ -515,7 +493,6 @@ export const ScheduleView: React.FC = () => {
               </button>
             </div>
 
-            {/* Block Title */}
             <div>
               <label className="block text-[12px] font-medium text-[#C4B5FD]">
                 Block Title
@@ -530,7 +507,6 @@ export const ScheduleView: React.FC = () => {
               />
             </div>
 
-            {/* Start & End Time Pickers */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[12px] font-medium text-[#C4B5FD]">
@@ -557,7 +533,6 @@ export const ScheduleView: React.FC = () => {
               </div>
             </div>
 
-            {/* Active Days (Mon-Sun Pills) */}
             <div>
               <span className="block text-[12px] font-medium text-[#C4B5FD]">
                 Active Days
@@ -583,7 +558,6 @@ export const ScheduleView: React.FC = () => {
               </div>
             </div>
 
-            {/* Session Preset Selector + Dynamic "Set Custom Time" Drawer */}
             <div>
               <span className="block text-[12px] font-medium text-[#C4B5FD]">
                 Session Preset
@@ -702,7 +676,6 @@ export const ScheduleView: React.FC = () => {
               )}
             </div>
 
-            {/* Modal Footer Controls */}
             <div className="mt-2 flex items-center justify-between pt-2 border-t border-[#262038]">
               {editingBlockId ? (
                 <button

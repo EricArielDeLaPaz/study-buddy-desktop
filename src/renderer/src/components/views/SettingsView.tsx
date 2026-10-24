@@ -1,11 +1,19 @@
 // src/renderer/src/components/views/SettingsView.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { playChime, ChimeType } from '../../utils/audio';
+import { ConfirmModal } from '../common/ConfirmModal';
+import {
+  loadDemoDataForDev,
+  resetStudyBuddyUserData,
+} from '../../utils/storage';
 
 export type AppearanceMode = 'dark' | 'light' | 'system';
 
 export const THEME_STORAGE_KEY = 'study_buddy_theme_mode';
 const CUSTOM_CHIME_STORAGE_KEY = 'study_buddy_custom_chime_v1';
+
+const IS_DEV_MODE =
+  typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
 
 interface CustomAudioChime {
   name: string;
@@ -28,7 +36,6 @@ export function applyThemeToDocument(mode: AppearanceMode): void {
   root.setAttribute('data-theme', resolvedTheme);
 }
 
-// Default to 'system' (Match system) on initial load
 if (typeof window !== 'undefined') {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY) as AppearanceMode;
@@ -74,9 +81,12 @@ export const SettingsView: React.FC = () => {
   );
   const chimeFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 3. Alerts Card State
+  // 3. Alerts & Data Reset State
   const [routeRemindersToPhoneOnly, setRouteRemindersToPhoneOnly] =
     useState<boolean>(false);
+  const [isResetDataModalOpen, setIsResetDataModalOpen] =
+    useState<boolean>(false);
+  const [dataStatusNotice, setDataStatusNotice] = useState<string | null>(null);
 
   const handleSelectAppearance = useCallback((nextMode: AppearanceMode) => {
     setAppearance(nextMode);
@@ -98,7 +108,6 @@ export const SettingsView: React.FC = () => {
     return () => mediaQuery.removeEventListener('change', listener);
   }, [appearance]);
 
-  // Play chime automatically when any chime option is clicked
   const handleSelectAndPlayChime = (chimeId: ChimeType | 'custom') => {
     setSelectedChime(chimeId);
     if (!soundsEnabled) return;
@@ -118,7 +127,6 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  // Import custom local audio file via "Upload Chime"
   const handleUploadChimeFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -158,17 +166,16 @@ export const SettingsView: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6 p-6 text-white font-sans">
-      {/* Header */}
       <div>
         <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
           Settings
         </h2>
         <p className="mt-1 text-[13px] text-[#9490A8]">
-          Configure appearance, startup & chime behavior, account access, and alert routing.
+          Configure appearance, startup & chime behavior, account access, and local data.
         </p>
       </div>
 
-      {/* 4 Dedicated Content-Hugging Cards Grid (items-start + h-fit + gap-6) */}
+      {/* 4 Dedicated Content-Hugging Cards Grid */}
       <div className="grid grid-cols-12 items-start gap-6">
         {/* 1. APPEARANCE CARD */}
         <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
@@ -219,7 +226,6 @@ export const SettingsView: React.FC = () => {
         <div className="col-span-6 h-fit flex flex-col gap-3.5 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <h3 className="text-[15px] font-bold text-white">Behavior</h3>
 
-          {/* Launch at startup toggle */}
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[13.5px] font-semibold text-white">
@@ -246,7 +252,6 @@ export const SettingsView: React.FC = () => {
             </button>
           </div>
 
-          {/* Sounds toggle */}
           <div className="flex items-center justify-between border-t border-[#2E2A45] pt-3">
             <div>
               <p className="text-[13.5px] font-semibold text-white">Sounds</p>
@@ -271,7 +276,6 @@ export const SettingsView: React.FC = () => {
             </button>
           </div>
 
-          {/* Audio Chime Selector (Plays automatically on click + Upload Chime button) */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#2E2A45] pt-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {(
@@ -313,7 +317,6 @@ export const SettingsView: React.FC = () => {
               )}
             </div>
 
-            {/* Upload Custom Chime Button */}
             <div>
               <input
                 ref={chimeFileInputRef}
@@ -333,7 +336,7 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. ACCOUNT CARD (Signed in as Tester · tester@email.com; Sign out & Delete account disabled) */}
+        {/* 3. ACCOUNT & LOCAL DATA CARD (Stage 1 Tester + Stage 5 Reset / Dev Demo Data) */}
         <div className="col-span-6 h-fit flex flex-col gap-4 rounded-2xl border border-[#2E2A45] bg-[#1A1829] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -368,6 +371,42 @@ export const SettingsView: React.FC = () => {
             >
               Delete account
             </button>
+          </div>
+
+          {/* Stage 5: "Reset my data" & Dev-only "Load demo data" */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#2E2A45] pt-3.5">
+            <div>
+              <p className="text-[13px] font-semibold text-white">
+                Local study data
+              </p>
+              <p className="text-[11.5px] text-[#9490A8]">
+                {dataStatusNotice ??
+                  'Clears progress, schedule, reminders & rules (keeps Notepad & theme).'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {IS_DEV_MODE && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadDemoDataForDev();
+                    setDataStatusNotice('Loaded demo data (dev mode)');
+                  }}
+                  className="rounded-xl border border-[#52438F] bg-[#2A244D] px-3 py-1.5 text-[12px] font-semibold text-[#C4B5FD] hover:bg-violet-600 hover:!text-white transition-all duration-150 ease-out cursor-pointer"
+                >
+                  Load demo data
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsResetDataModalOpen(true)}
+                className="rounded-xl bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50 dark:hover:bg-rose-900/60 px-3.5 py-1.5 text-[12px] font-semibold transition-all duration-150 ease-out cursor-pointer"
+              >
+                Reset my data
+              </button>
+            </div>
           </div>
         </div>
 
@@ -410,6 +449,19 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for Resetting Local Study Data */}
+      <ConfirmModal
+        isOpen={isResetDataModalOpen}
+        title="Reset My Study Buddy Data?"
+        description="This will clear your saved progress history, schedule blocks, reminders, and app rules on this device. Your Notepad notes, theme, and Tester account will not be cleared."
+        confirmLabel="Reset my data"
+        onConfirm={() => {
+          resetStudyBuddyUserData();
+          setDataStatusNotice('Study data reset to a clean profile.');
+        }}
+        onCancel={() => setIsResetDataModalOpen(false)}
+      />
     </div>
   );
 };

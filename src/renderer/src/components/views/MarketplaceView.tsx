@@ -1,13 +1,12 @@
 // src/renderer/src/components/views/MarketplaceView.tsx
 import React, { useState } from 'react';
 import {
-  COMPANION_LEVEL_ROSTER,
+  getDynamicCompanionRoster,
   CompanionMiniAvatar,
 } from './ProgressView';
-import {
-  ChibiCompanion,
-  ChibiCompanionMode,
-} from '../companion/ChibiCompanion';
+import { AnimationPlaceholder } from '../common/AnimationPlaceholder';
+import { AnimationSlotId } from '../../types/buddy';
+import { ChibiCompanionMode } from '../companion/ChibiCompanion';
 import {
   ACTIVE_COMPANION_STORAGE_KEY,
   ActiveCompanionSelection,
@@ -22,275 +21,294 @@ export interface MarketplaceViewProps {
   onNavigateToBuddy?: () => void;
 }
 
-type MarketplaceFilter = 'All' | 'Study' | 'Calm' | 'Fun' | 'Minimal' | 'Warm';
 type PresetApplyMode = 'create_new' | 'override_current';
-type AnimationCategoryKey = 'Idle' | 'Reminder' | 'Success' | 'Status';
-type ShareableTag = 'Study' | 'Calm' | 'Fun' | 'Minimal' | 'Warm';
 
-interface CommunityPreset {
+interface PlaceholderBuddyPreset {
   id: string;
   title: string;
-  author: string;
-  tags: ShareableTag[];
-  description: string;
-  downloads: string;
+  creator: 'Study Buddy team';
+  tagline: string;
+  levelRequired: number;
   previewMode: ChibiCompanionMode;
+  mainSlots: ReadonlyArray<{
+    slotId: AnimationSlotId;
+    label: string;
+    mode: ChibiCompanionMode;
+    reminderTrigger: string;
+  }>;
+  extraSlots: ReadonlyArray<{
+    slotId: AnimationSlotId;
+    label: string;
+    mode: ChibiCompanionMode;
+    reminderTrigger: string;
+  }>;
 }
 
-const INITIAL_COMMUNITY_PRESETS: CommunityPreset[] = [
+const PLACEHOLDER_MARKETPLACE_BUDDIES: ReadonlyArray<PlaceholderBuddyPreset> = [
   {
-    id: 'preset-cozy-library',
+    id: 'placeholder-cozy-library',
     title: 'Cozy Library',
-    author: '@hana_ux',
-    tags: ['Study', 'Warm'],
-    description:
-      'Warm mahogany desk tones, page-flipping study idle loop, and gentle teacup hydration nudges.',
-    downloads: '4.2k',
+    creator: 'Study Buddy team',
+    tagline:
+      'Placeholder companion preset with warm desk study loops and teacup hydration reminders.',
+    levelRequired: 2,
     previewMode: 'idle_studying',
+    mainSlots: [
+      {
+        slotId: 'idle_studying',
+        label: 'Idle studying',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'reminder_drinking_water',
+        label: 'Drinking water',
+        mode: 'hydration',
+        reminderTrigger: 'Drink Water',
+      },
+      {
+        slotId: 'reminder_bathroom',
+        label: 'Break / stretch',
+        mode: 'bathroom',
+        reminderTrigger: 'Bathroom Break',
+      },
+      {
+        slotId: 'status_nudge',
+        label: 'Nudge',
+        mode: 'intervention',
+        reminderTrigger: 'App Rules Nudge',
+      },
+    ],
+    extraSlots: [
+      {
+        slotId: 'idle_reading',
+        label: 'Idle reading',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'status_sleeping',
+        label: 'Sleeping',
+        mode: 'bathroom',
+        reminderTrigger: 'None',
+      },
+    ],
   },
   {
-    id: 'preset-neon-night',
+    id: 'placeholder-neon-night',
     title: 'Neon Night',
-    author: '@synth_mambo',
-    tags: ['Fun', 'Study'],
-    description:
-      'Velvet synthwave glow with high-contrast intervention alerts and energetic celebration sparkles.',
-    downloads: '3.8k',
+    creator: 'Study Buddy team',
+    tagline:
+      'Placeholder companion preset styled for evening coding sessions and high-contrast nudges.',
+    levelRequired: 4,
     previewMode: 'celebrating',
+    mainSlots: [
+      {
+        slotId: 'idle_studying',
+        label: 'Idle studying',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'reminder_drinking_water',
+        label: 'Drinking water',
+        mode: 'hydration',
+        reminderTrigger: 'Drink Water',
+      },
+      {
+        slotId: 'reminder_bathroom',
+        label: 'Break / stretch',
+        mode: 'bathroom',
+        reminderTrigger: 'Bathroom Break',
+      },
+      {
+        slotId: 'status_nudge',
+        label: 'Nudge',
+        mode: 'intervention',
+        reminderTrigger: 'App Rules Nudge',
+      },
+    ],
+    extraSlots: [
+      {
+        slotId: 'idle_reading',
+        label: 'Idle reading',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'status_sleeping',
+        label: 'Sleeping',
+        mode: 'bathroom',
+        reminderTrigger: 'None',
+      },
+    ],
   },
   {
-    id: 'preset-forest-focus',
+    id: 'placeholder-lavender-focus',
     title: 'Lavender Focus',
-    author: '@moss_studio',
-    tags: ['Calm', 'Warm'],
-    description:
-      'Soothing lavender palette designed for low-eye-strain reading blocks and mindful breathing breaks.',
-    downloads: '5.1k',
+    creator: 'Study Buddy team',
+    tagline:
+      'Placeholder companion preset with soft lavender tones for low-eye-strain reading blocks.',
+    levelRequired: 3,
     previewMode: 'hydration',
+    mainSlots: [
+      {
+        slotId: 'idle_studying',
+        label: 'Idle studying',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'reminder_drinking_water',
+        label: 'Drinking water',
+        mode: 'hydration',
+        reminderTrigger: 'Drink Water',
+      },
+      {
+        slotId: 'reminder_bathroom',
+        label: 'Break / stretch',
+        mode: 'bathroom',
+        reminderTrigger: 'Bathroom Break',
+      },
+      {
+        slotId: 'status_nudge',
+        label: 'Nudge',
+        mode: 'intervention',
+        reminderTrigger: 'App Rules Nudge',
+      },
+    ],
+    extraSlots: [
+      {
+        slotId: 'idle_reading',
+        label: 'Idle reading',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'status_sleeping',
+        label: 'Sleeping',
+        mode: 'bathroom',
+        reminderTrigger: 'None',
+      },
+    ],
   },
   {
-    id: 'preset-retro-arcade',
+    id: 'placeholder-retro-arcade',
     title: 'Retro Arcade',
-    author: '@pixel_knight',
-    tags: ['Minimal', 'Fun'],
-    description:
-      'Crisp 16-bit inspired status animations, minimal distraction borders, and classic level-up chimes.',
-    downloads: '2.9k',
+    creator: 'Study Buddy team',
+    tagline:
+      'Placeholder companion preset featuring minimal status badges and classic break cues.',
+    levelRequired: 5,
     previewMode: 'bathroom',
+    mainSlots: [
+      {
+        slotId: 'idle_studying',
+        label: 'Idle studying',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'reminder_drinking_water',
+        label: 'Drinking water',
+        mode: 'hydration',
+        reminderTrigger: 'Drink Water',
+      },
+      {
+        slotId: 'reminder_bathroom',
+        label: 'Break / stretch',
+        mode: 'bathroom',
+        reminderTrigger: 'Bathroom Break',
+      },
+      {
+        slotId: 'status_nudge',
+        label: 'Nudge',
+        mode: 'intervention',
+        reminderTrigger: 'App Rules Nudge',
+      },
+    ],
+    extraSlots: [
+      {
+        slotId: 'idle_reading',
+        label: 'Idle reading',
+        mode: 'idle_studying',
+        reminderTrigger: 'None',
+      },
+      {
+        slotId: 'status_sleeping',
+        label: 'Sleeping',
+        mode: 'bathroom',
+        reminderTrigger: 'None',
+      },
+    ],
   },
-];
-
-const FILTER_PILLS: ReadonlyArray<MarketplaceFilter> = [
-  'All',
-  'Study',
-  'Calm',
-  'Fun',
-  'Minimal',
-  'Warm',
-];
-
-const SHAREABLE_TAGS: ReadonlyArray<ShareableTag> = [
-  'Study',
-  'Calm',
-  'Fun',
-  'Minimal',
-  'Warm',
-];
-
-const CATEGORY_TOGGLES: ReadonlyArray<{
-  key: AnimationCategoryKey;
-  subtitle: string;
-}> = [
-  { key: 'Idle', subtitle: 'Studying & reading desk loops' },
-  { key: 'Reminder', subtitle: 'Water & stretch break animations' },
-  { key: 'Success', subtitle: 'Goal completion & XP celebrations' },
-  { key: 'Status', subtitle: 'Distraction nudge & sleeping states' },
 ];
 
 export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   onNavigateToBuddy,
 }) => {
-  const [presets, setPresets] = useState<CommunityPreset[]>(
-    INITIAL_COMMUNITY_PRESETS
-  );
+  const earnedRoster = getDynamicCompanionRoster();
+
   const [userActivePresets, setUserActivePresets] = useState<UserBuddyPreset[]>(
     loadUserBuddyPresets
   );
 
-  // Filter strictly to user-created Custom presets for the "Share to Marketplace" modal
-  const customOnlyPresets = userActivePresets.filter(
-    (preset) => preset.source === 'Custom'
+  const [selectedEarnedBuddyId, setSelectedEarnedBuddyId] = useState<string>(
+    () => earnedRoster[0]?.id ?? 'buddy-lv1'
   );
-
-  const [selectedFilter, setSelectedFilter] =
-    useState<MarketplaceFilter>('All');
-  const [selectedEarnedBuddyId, setSelectedEarnedBuddyId] =
-    useState<string>('buddy-lv7');
   const [selectedPresetId, setSelectedPresetId] = useState<string>(
-    INITIAL_COMMUNITY_PRESETS[0].id
+    PLACEHOLDER_MARKETPLACE_BUDDIES[0].id
   );
+  const [selectedPreviewSlot, setSelectedPreviewSlot] =
+    useState<AnimationSlotId>('idle_studying');
 
   // Right Drawer State
   const [applyMode, setApplyMode] =
     useState<PresetApplyMode>('create_new');
   const [newPresetCustomName, setNewPresetCustomName] =
-    useState<string>('Cozy Library Custom');
+    useState<string>('Cozy Library');
   const [overrideTargetPresetId, setOverrideTargetPresetId] = useState<string>(
     () => userActivePresets[0]?.id ?? 'preset-mkt-cozy'
   );
 
-  const [selectedCategories, setSelectedCategories] = useState<
-    Record<AnimationCategoryKey, boolean>
-  >({
-    Idle: true,
-    Reminder: true,
-    Success: true,
-    Status: true,
-  });
-
-  // "Share your Buddy to Marketplace" Modal State
-  const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
-  const [publishSourcePresetId, setPublishSourcePresetId] = useState<string>(
-    () => customOnlyPresets[0]?.id ?? ''
-  );
-  const [publishTitle, setPublishTitle] = useState<string>(
-    () => customOnlyPresets[0]?.name ?? 'Midnight Matcha'
-  );
-  const [publishTags, setPublishTags] = useState<ShareableTag[]>([
-    'Study',
-    'Calm',
-  ]);
-  const [publishDescription, setPublishDescription] = useState<string>('');
-  const [publishMode, setPublishMode] =
-    useState<ChibiCompanionMode>('idle_studying');
-
-  const [appliedBanner, setAppliedBanner] = useState<string | null>(null);
-
-  const filteredPresets =
-    selectedFilter === 'All'
-      ? presets
-      : presets.filter((p) => p.tags.includes(selectedFilter));
-
   const activePreset =
-    presets.find((p) => p.id === selectedPresetId) ?? presets[0];
+    PLACEHOLDER_MARKETPLACE_BUDDIES.find((p) => p.id === selectedPresetId) ??
+    PLACEHOLDER_MARKETPLACE_BUDDIES[0];
 
   const activeEarnedBuddy =
-    COMPANION_LEVEL_ROSTER.find((b) => b.id === selectedEarnedBuddyId) ??
-    COMPANION_LEVEL_ROSTER[0];
+    earnedRoster.find((b) => b.id === selectedEarnedBuddyId) ??
+    earnedRoster[0];
 
-  const handleOpenPublishModal = () => {
-    const latestPresets = loadUserBuddyPresets();
-    setUserActivePresets(latestPresets);
-    const customList = latestPresets.filter((p) => p.source === 'Custom');
-    if (customList.length > 0) {
-      setPublishSourcePresetId(customList[0].id);
-      setPublishTitle(customList[0].name);
-      setPublishMode(customList[0].defaultMode);
-    }
-    setIsPublishModalOpen(true);
-  };
-
-  const handleSelectPreset = (preset: CommunityPreset) => {
+  const handleSelectPreset = (preset: PlaceholderBuddyPreset) => {
     setSelectedPresetId(preset.id);
-    setNewPresetCustomName(`${preset.title} Custom`);
-    setAppliedBanner(null);
-  };
-
-  const toggleCategory = (key: AnimationCategoryKey) => {
-    setSelectedCategories((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-  };
-
-  const togglePublishTag = (tag: ShareableTag) => {
-    setPublishTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
+    setNewPresetCustomName(preset.title);
+    setSelectedPreviewSlot(preset.mainSlots[0].slotId);
   };
 
   /**
-   * Builds the animation slots array for the newly created or overridden preset
-   * based on the user's selected category toggles.
+   * Equips the selected placeholder buddy locally (including all 4 Main + 2 Extra animation slots)
+   * and navigates to Buddy Studio.
    */
-  const buildConfiguredSlots = (
-    presetTitle: string
-  ): BuddyAnimationSlotConfig[] => {
-    const configured: BuddyAnimationSlotConfig[] = [];
-
-    if (selectedCategories.Idle) {
-      configured.push({
-        id: `slot-idle-${Date.now()}`,
-        label: 'Study focus loop',
-        slotKey: 'Idle',
-        description: `${presetTitle} focus loop`,
-        mode: 'idle_studying',
-        reminderTrigger: 'None',
-      });
-    }
-    if (selectedCategories.Reminder) {
-      configured.push(
-        {
-          id: `slot-water-${Date.now()}`,
-          label: 'Water break',
-          slotKey: 'Hydration',
-          description: `${presetTitle} hydration animation`,
-          mode: 'hydration',
-          reminderTrigger: 'Drink Water',
-        },
-        {
-          id: `slot-break-${Date.now()}`,
-          label: 'Break time stretch',
-          slotKey: 'Break',
-          description: `${presetTitle} stretch animation`,
-          mode: 'bathroom',
-          reminderTrigger: 'Bathroom Break',
-        }
-      );
-    }
-    if (selectedCategories.Success) {
-      configured.push({
-        id: `slot-success-${Date.now()}`,
-        label: 'Goal celebration',
-        slotKey: 'Success',
-        description: `${presetTitle} celebration sparkle loop`,
-        mode: 'celebrating',
-        reminderTrigger: 'None',
-      });
-    }
-    if (selectedCategories.Status) {
-      configured.push({
-        id: `slot-alert-${Date.now()}`,
-        label: 'Distraction alert',
-        slotKey: 'Alert',
-        description: `${presetTitle} intervention nudge`,
-        mode: 'intervention',
-        reminderTrigger: 'App Rules Nudge',
-      });
-    }
-
-    if (configured.length === 0) {
-      configured.push({
-        id: `slot-default-${Date.now()}`,
-        label: 'Study focus loop',
-        slotKey: 'Idle',
-        description: `${presetTitle} focus loop`,
-        mode: 'idle_studying',
-        reminderTrigger: 'None',
-      });
-    }
-
-    return configured;
-  };
-
-  /**
-   * Saves the newly created or overridden preset into the active buddy roster,
-   * sets `selectedBuddyId` (`ACTIVE_COMPANION_STORAGE_KEY`) to that buddy,
-   * and navigates directly to the Buddy tab (`setActiveTab('buddy')`).
-   */
-  const handleApplyPreset = () => {
+  const handleEquipPlaceholderBuddy = () => {
     playChime('break_start');
-    const configuredSlots = buildConfiguredSlots(activePreset.title);
+
+    const allSixSlots: BuddyAnimationSlotConfig[] = [
+      ...activePreset.mainSlots.map((s) => ({
+        id: `${activePreset.id}-${s.slotId}`,
+        label: s.label,
+        slotKey: s.slotId,
+        description: `Main animation placeholder (${s.slotId})`,
+        mode: s.mode,
+        reminderTrigger: s.reminderTrigger,
+      })),
+      ...activePreset.extraSlots.map((s) => ({
+        id: `${activePreset.id}-${s.slotId}`,
+        label: s.label,
+        slotKey: s.slotId,
+        description: `Extra animation placeholder (${s.slotId})`,
+        mode: s.mode,
+        reminderTrigger: s.reminderTrigger,
+      })),
+    ];
 
     let equippedBuddy: UserBuddyPreset;
     let updatedRoster: UserBuddyPreset[];
@@ -302,7 +320,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         source: 'Marketplace',
         accentBg: '#3C3173',
         defaultMode: activePreset.previewMode,
-        slots: configuredSlots,
+        slots: allSixSlots,
       };
       updatedRoster = [equippedBuddy, ...userActivePresets];
     } else {
@@ -318,7 +336,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         }),
         name: existingTarget ? existingTarget.name : activePreset.title,
         defaultMode: activePreset.previewMode,
-        slots: configuredSlots,
+        slots: allSixSlots,
       };
 
       updatedRoster = userActivePresets.map((p) =>
@@ -328,12 +346,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
     setUserActivePresets(updatedRoster);
 
-    // 1. Persist updated buddy roster & set active selectedBuddyId for BuddyStudioView
     const activeSelectionPayload: ActiveCompanionSelection = {
       id: equippedBuddy.id,
       name: equippedBuddy.name,
       kind: equippedBuddy.source,
-      slots: configuredSlots,
+      slots: allSixSlots,
     };
 
     try {
@@ -350,8 +367,6 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       // Ignore storage quota error
     }
 
-    // 2. Programmatically navigate to the Buddy tab so the user immediately sees
-    // the newly created/overridden buddy selected in the roster and preview stage
     if (onNavigateToBuddy) {
       onNavigateToBuddy();
     } else {
@@ -361,78 +376,45 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     }
   };
 
-  const handlePublishBuddy = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!publishTitle.trim() || customOnlyPresets.length === 0) return;
-
-    const created: CommunityPreset = {
-      id: `preset-custom-${Date.now()}`,
-      title: publishTitle.trim(),
-      author: '@you',
-      tags: publishTags.length > 0 ? publishTags : ['Study'],
-      description:
-        publishDescription.trim() ||
-        `Custom Mambo companion configuration created by @you.`,
-      downloads: '1',
-      previewMode: publishMode,
-    };
-
-    setPresets((prev) => [created, ...prev]);
-    setSelectedPresetId(created.id);
-    setPublishDescription('');
-    setIsPublishModalOpen(false);
-    playChime('gentle_bell');
-    setAppliedBanner(
-      `Published "${created.title}" to the Community Marketplace!`
-    );
-  };
-
   return (
     <div className="relative flex h-full flex-col gap-5 p-6 text-white font-sans">
-      {/* Top Header with "Add to Marketplace" Action Button */}
+      {/* Top Header with Disabled "Coming soon" Publish Button */}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
-            Companion Marketplace
+            Companion Marketplace (Placeholders)
           </h2>
           <p className="mt-1 text-[13px] text-[#9490A8]">
-            Pair your earned Mambo companions with community animation packs or publish your own custom creation.
+            Browse the 4 placeholder companion presets from the Study Buddy team and equip them locally.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {appliedBanner && (
-            <div className="rounded-full border border-[#A594F9]/50 bg-[#261E42] px-3.5 py-1.5 text-[11.5px] font-semibold text-[#C4B5FD]">
-              ✓ {appliedBanner}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleOpenPublishModal}
-            className="flex items-center gap-2 rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#12111A] shadow-md hover:bg-[#B8A9FA] transition cursor-pointer shrink-0"
-          >
-            <span>+ Add to Marketplace</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled
+          title="Community sharing and uploads are coming soon"
+          className="flex items-center gap-2 rounded-xl border border-[#2E2A45] bg-[#232136] px-4 py-2 text-[12.5px] font-semibold text-[#9490A8] opacity-55 cursor-not-allowed shrink-0"
+        >
+          <span>Share Buddy · Coming soon</span>
+        </button>
       </div>
 
       {/* Three-Column Marketplace Grid */}
       <div className="grid flex-1 grid-cols-12 gap-4 min-h-0">
-        {/* LEFT PANEL: Earned Buddies List */}
+        {/* LEFT PANEL: Earned / Unlock Path Buddies */}
         <div className="col-span-3 flex flex-col rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
             <h3 className="text-[14px] font-bold text-white">
-              Earned buddies
+              Unlock Path
             </h3>
             <span className="rounded-full bg-[#261E42] px-2 py-0.5 text-[10.5px] font-semibold text-[#A594F9]">
-              {COMPANION_LEVEL_ROSTER.filter((b) => b.unlocked).length} /{' '}
-              {COMPANION_LEVEL_ROSTER.length}
+              {earnedRoster.filter((b) => b.unlocked).length} /{' '}
+              {earnedRoster.length}
             </span>
           </div>
 
           <div className="mt-3 flex flex-col gap-2 overflow-y-auto">
-            {COMPANION_LEVEL_ROSTER.map((buddy) => {
+            {earnedRoster.map((buddy) => {
               const isSelected = selectedEarnedBuddyId === buddy.id;
               return (
                 <button
@@ -475,32 +457,19 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           </div>
         </div>
 
-        {/* CENTER PANEL: Marketplace Grid */}
+        {/* CENTER PANEL: Exactly 4 Labeled Placeholder Buddies */}
         <div className="col-span-5 flex flex-col rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#262038] pb-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {FILTER_PILLS.map((pill) => {
-                const active = selectedFilter === pill;
-                return (
-                  <button
-                    key={pill}
-                    type="button"
-                    onClick={() => setSelectedFilter(pill)}
-                    className={`rounded-full px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
-                      active
-                        ? 'bg-[#A594F9] text-[#12111A]'
-                        : 'bg-[#141020] text-[#9490A8] hover:bg-[#261E42] hover:text-white'
-                    }`}
-                  >
-                    {pill}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="flex items-center justify-between border-b border-[#262038] pb-3">
+            <span className="text-[13px] font-bold text-white">
+              4 Placeholder Buddies
+            </span>
+            <span className="rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-[#2A244D] dark:text-[#C4B5FD] dark:border-[#52438F] px-2.5 py-0.5 text-[11px] font-semibold">
+              Study Buddy team
+            </span>
           </div>
 
           <div className="mt-3.5 grid grid-cols-2 gap-3 overflow-y-auto">
-            {filteredPresets.map((preset) => {
+            {PLACEHOLDER_MARKETPLACE_BUDDIES.map((preset) => {
               const isSelected = preset.id === activePreset.id;
               return (
                 <button
@@ -514,28 +483,30 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   }`}
                 >
                   <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold text-[#A594F9]">
-                        {preset.author}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="rounded-full bg-violet-100 text-violet-800 border border-violet-200/90 dark:bg-[#2A244D] dark:text-[#C4B5FD] dark:border-[#52438F] px-2 py-0.5 text-[10px] font-semibold">
+                        Placeholder
                       </span>
-                      <span className="text-[10.5px] font-medium text-[#9490A8]">
-                        ⬇ {preset.downloads}
+                      <span className="text-[10.5px] font-semibold text-[#9490A8]">
+                        Lv. {preset.levelRequired}
                       </span>
                     </div>
 
-                    <div className="my-3 flex justify-center">
-                      <ChibiCompanion
-                        mode={preset.previewMode}
-                        size="sm"
-                        showStateBadge={false}
+                    <div className="my-2.5 flex justify-center">
+                      <AnimationPlaceholder
+                        slot={preset.mainSlots[0].slotId}
+                        size={112}
                       />
                     </div>
 
                     <p className="text-[14px] font-bold text-white">
                       {preset.title}
                     </p>
+                    <p className="text-[11px] font-semibold text-[#A594F9]">
+                      {preset.creator}
+                    </p>
                     <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#9490A8]">
-                      {preset.description}
+                      {preset.tagline}
                     </p>
                   </div>
                 </button>
@@ -544,293 +515,142 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           </div>
         </div>
 
-        {/* RIGHT PANEL: Preset Details Drawer */}
-        <div className="col-span-4 flex flex-col justify-between rounded-2xl border border-[#4E4187] bg-[#181424] p-4">
-          <div className="flex flex-col gap-3.5">
-            <div className="flex items-center justify-between border-b border-[#262038] pb-3">
+        {/* RIGHT PANEL: Placeholder Details & Main + Extra Animation Placeholders */}
+        <div className="col-span-4 flex flex-col justify-between rounded-2xl border border-[#4E4187] bg-[#181424] p-4 overflow-y-auto">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-[#262038] pb-2.5">
               <div>
-                <h3 className="text-[15px] font-bold text-white">
-                  {activePreset.title}
-                </h3>
-                <p className="text-[11.5px] text-[#9490A8]">
-                  Base buddy:{' '}
-                  <span className="font-semibold text-[#C4B5FD]">
-                    {activeEarnedBuddy.name}
+                <div className="flex items-center gap-2">
+                  <h3 className="text-[15px] font-bold text-white">
+                    {activePreset.title}
+                  </h3>
+                  <span className="rounded-full bg-[#2A244D] border border-[#52438F] px-2 py-0.5 text-[10px] font-semibold text-[#C4B5FD]">
+                    Placeholder
                   </span>
-                </p>
-              </div>
-            </div>
-
-            {/* Preset Apply Mode Options */}
-            <div className="flex flex-col gap-2">
-              <span className="text-[11.5px] font-semibold text-[#E2DFF0]">
-                Preset Action
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setApplyMode('create_new')}
-                className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[12px] font-semibold transition cursor-pointer ${
-                  applyMode === 'create_new'
-                    ? 'border-[#A594F9] bg-[#261E42] text-white'
-                    : 'border-[#2C253E] bg-[#141020] text-[#9490A8] hover:text-white'
-                }`}
-              >
-                <span>Create new preset</span>
-                <span
-                  className={`h-3 w-3 rounded-full border ${
-                    applyMode === 'create_new'
-                      ? 'border-white bg-[#A594F9]'
-                      : 'border-[#5A5373]'
-                  }`}
-                />
-              </button>
-
-              {applyMode === 'create_new' && (
-                <input
-                  type="text"
-                  value={newPresetCustomName}
-                  onChange={(e) => setNewPresetCustomName(e.target.value)}
-                  placeholder="Enter new preset name..."
-                  className="rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-1.5 text-[12px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
-                />
-              )}
-
-              <button
-                type="button"
-                onClick={() => setApplyMode('override_current')}
-                className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[12px] font-semibold transition cursor-pointer ${
-                  applyMode === 'override_current'
-                    ? 'border-[#A594F9] bg-[#261E42] text-white'
-                    : 'border-[#2C253E] bg-[#141020] text-[#9490A8] hover:text-white'
-                }`}
-              >
-                <span>Override current preset</span>
-                <span
-                  className={`h-3 w-3 rounded-full border ${
-                    applyMode === 'override_current'
-                      ? 'border-white bg-[#A594F9]'
-                      : 'border-[#5A5373]'
-                  }`}
-                />
-              </button>
-
-              {applyMode === 'override_current' && (
-                <div className="flex flex-col gap-1 pt-0.5">
-                  <label className="text-[11px] font-medium text-[#9490A8]">
-                    Select active preset to replace:
-                  </label>
-                  <select
-                    value={overrideTargetPresetId}
-                    onChange={(e) => setOverrideTargetPresetId(e.target.value)}
-                    className="w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[12px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
-                  >
-                    {userActivePresets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                      </option>
-                    ))}
-                  </select>
                 </div>
-              )}
-            </div>
-
-            {/* Category Toggles: Idle, Reminder, Success, Status */}
-            <div className="flex flex-col gap-2">
-              <span className="text-[11.5px] font-semibold text-[#E2DFF0]">
-                Animation Category Toggles
-              </span>
-
-              {CATEGORY_TOGGLES.map((item) => {
-                const isChecked = selectedCategories[item.key];
-                return (
-                  <div
-                    key={item.key}
-                    onClick={() => toggleCategory(item.key)}
-                    className={`flex items-center justify-between rounded-xl border px-3 py-2 transition cursor-pointer ${
-                      isChecked
-                        ? 'border-[#4E4187] bg-[#221D33]'
-                        : 'border-[#2C253E] bg-[#0E0B16] opacity-60'
-                    }`}
-                  >
-                    <div>
-                      <p className="text-[12.5px] font-bold text-white">
-                        {item.key}
-                      </p>
-                      <p className="text-[10.5px] text-[#9490A8]">
-                        {item.subtitle}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={isChecked}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleCategory(item.key);
-                      }}
-                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
-                        isChecked ? 'bg-[#A594F9]' : 'bg-[#2C253E]'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-[#12111A] transition-transform ${
-                          isChecked ? 'translate-x-4' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleApplyPreset}
-            className="mt-4 w-full rounded-xl bg-[#A594F9] py-2.5 px-4 text-[13px] font-bold text-[#12111A] shadow-md hover:bg-[#B8A9FA] active:scale-[0.99] transition cursor-pointer"
-          >
-            {applyMode === 'create_new'
-              ? 'Create & Open in Buddy Studio'
-              : 'Override & Open in Buddy Studio'}
-          </button>
-        </div>
-      </div>
-
-      {/* Share your Buddy to Marketplace Overlay Modal (Filtered ONLY to Custom Presets) */}
-      {isPublishModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <form
-            onSubmit={handlePublishBuddy}
-            className="w-[440px] rounded-[24px] border border-[#4E4187] bg-[#181424] p-5 shadow-2xl flex flex-col gap-4"
-          >
-            <div className="flex items-center justify-between border-b border-[#2C253E] pb-3">
-              <div>
-                <h3 className="font-display text-[17px] font-bold text-white">
-                  Share your Buddy to Marketplace
-                </h3>
                 <p className="text-[11.5px] text-[#9490A8]">
-                  Only user-created Custom presets can be shared publicly.
+                  Creator: {activePreset.creator} · Base: {activeEarnedBuddy.name}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsPublishModalOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-[#261E42] text-[#C4B5FD] hover:bg-[#A594F9] hover:text-[#12111A] transition cursor-pointer"
-              >
-                ✕
-              </button>
             </div>
 
-            {/* 1. Custom-Only Preset Selection Dropdown Positioned Above Title */}
-            <div>
-              <label className="block text-[12px] font-semibold text-[#E2DFF0]">
-                Select Custom Preset to Share
-              </label>
-              {customOnlyPresets.length > 0 ? (
-                <select
-                  value={publishSourcePresetId}
-                  onChange={(e) => {
-                    const chosenId = e.target.value;
-                    setPublishSourcePresetId(chosenId);
-                    const found = customOnlyPresets.find(
-                      (p) => p.id === chosenId
-                    );
-                    if (found) {
-                      setPublishTitle(found.name);
-                      setPublishMode(found.defaultMode);
-                    }
-                  }}
-                  className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[12.5px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
-                >
-                  {customOnlyPresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.name} (Custom)
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="mt-1.5 rounded-xl border border-[#4E4187] bg-[#261E42]/60 px-3 py-2 text-[12px] text-[#C4B5FD]">
-                  No custom presets found. Create a custom buddy in the Buddy tab first!
-                </div>
-              )}
+            {/* Live Selected AnimationPlaceholder Preview */}
+            <div className="flex justify-center py-1">
+              <AnimationPlaceholder slot={selectedPreviewSlot} size={140} />
             </div>
 
-            {/* 2. Preset Title Input Field */}
+            {/* Main Animations (4) */}
             <div>
-              <label className="block text-[12px] font-semibold text-[#E2DFF0]">
-                Preset Title
-              </label>
-              <input
-                type="text"
-                required
-                value={publishTitle}
-                onChange={(e) => setPublishTitle(e.target.value)}
-                placeholder="e.g., Midnight Matcha Mambo"
-                className="mt-1.5 w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
-              />
-            </div>
-
-            {/* 3. Multi-Select Category Tags */}
-            <div>
-              <span className="block text-[12px] font-semibold text-[#E2DFF0]">
-                Best Used For (Select Tags)
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#C4B5FD]">
+                Main Animations (4)
               </span>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {SHAREABLE_TAGS.map((tag) => {
-                  const selected = publishTags.includes(tag);
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                {activePreset.mainSlots.map((slot) => {
+                  const active = selectedPreviewSlot === slot.slotId;
                   return (
                     <button
-                      key={tag}
+                      key={slot.slotId}
                       type="button"
-                      onClick={() => togglePublishTag(tag)}
-                      className={`rounded-full border px-3 py-1 text-[11.5px] font-semibold transition cursor-pointer ${
-                        selected
-                          ? 'border-[#A594F9] bg-[#A594F9] text-[#12111A]'
-                          : 'border-[#2C253E] bg-[#0E0B16] text-[#9490A8] hover:border-[#4E4187] hover:text-white'
+                      onClick={() => setSelectedPreviewSlot(slot.slotId)}
+                      className={`rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-semibold transition cursor-pointer ${
+                        active
+                          ? 'border-violet-500 bg-violet-600 !text-white'
+                          : 'border-[#2C253E] bg-[#141020] text-[#C4B5FD] hover:border-[#52438F]'
                       }`}
                     >
-                      {selected ? `✓ ${tag}` : tag}
+                      {slot.label}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* 4. Description */}
+            {/* Extra Animations (2) */}
             <div>
-              <label className="block text-[12px] font-semibold text-[#E2DFF0]">
-                Description
-              </label>
-              <textarea
-                rows={3}
-                value={publishDescription}
-                onChange={(e) => setPublishDescription(e.target.value)}
-                placeholder="Describe your custom Mambo companion theme and animations..."
-                className="mt-1.5 w-full resize-none rounded-xl border border-[#4E4187] bg-[#0E0B16] p-2.5 text-[12.5px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
-              />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#C4B5FD]">
+                Extra Animations (2)
+              </span>
+              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                {activePreset.extraSlots.map((slot) => {
+                  const active = selectedPreviewSlot === slot.slotId;
+                  return (
+                    <button
+                      key={slot.slotId}
+                      type="button"
+                      onClick={() => setSelectedPreviewSlot(slot.slotId)}
+                      className={`rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-semibold transition cursor-pointer ${
+                        active
+                          ? 'border-violet-500 bg-violet-600 !text-white'
+                          : 'border-[#2C253E] bg-[#141020] text-[#C4B5FD] hover:border-[#52438F]'
+                      }`}
+                    >
+                      {slot.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#2C253E]">
-              <button
-                type="button"
-                onClick={() => setIsPublishModalOpen(false)}
-                className="rounded-xl border border-[#4E4187] bg-[#141020] px-4 py-2 text-[12.5px] font-semibold text-[#C4B5FD] hover:text-white cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={customOnlyPresets.length === 0}
-                className="rounded-xl bg-[#A594F9] px-4 py-2 text-[12.5px] font-bold text-[#12111A] hover:bg-[#B8A9FA] disabled:opacity-50 cursor-pointer"
-              >
-                Publish Preset
-              </button>
+            {/* Local Equip Mode */}
+            <div className="flex flex-col gap-1.5 border-t border-[#262038] pt-2.5">
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setApplyMode('create_new')}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[11.5px] font-semibold transition cursor-pointer ${
+                    applyMode === 'create_new'
+                      ? 'border-[#A594F9] bg-[#261E42] text-white'
+                      : 'border-[#2C253E] bg-[#141020] text-[#9490A8]'
+                  }`}
+                >
+                  Create new preset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApplyMode('override_current')}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[11.5px] font-semibold transition cursor-pointer ${
+                    applyMode === 'override_current'
+                      ? 'border-[#A594F9] bg-[#261E42] text-white'
+                      : 'border-[#2C253E] bg-[#141020] text-[#9490A8]'
+                  }`}
+                >
+                  Override preset
+                </button>
+              </div>
+
+              {applyMode === 'create_new' ? (
+                <input
+                  type="text"
+                  value={newPresetCustomName}
+                  onChange={(e) => setNewPresetCustomName(e.target.value)}
+                  placeholder="Local preset name..."
+                  className="rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-1.5 text-[12px] text-white placeholder-[#9490A8] focus:border-[#A594F9] focus:outline-none select-text"
+                />
+              ) : (
+                <select
+                  value={overrideTargetPresetId}
+                  onChange={(e) => setOverrideTargetPresetId(e.target.value)}
+                  className="w-full rounded-xl border border-[#4E4187] bg-[#0E0B16] px-3 py-1.5 text-[12px] font-semibold text-white focus:border-[#A594F9] focus:outline-none cursor-pointer"
+                >
+                  {userActivePresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
-          </form>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleEquipPlaceholderBuddy}
+            className="mt-3 w-full rounded-xl bg-violet-600 !text-white py-2.5 px-4 text-[13px] font-bold shadow-md hover:bg-violet-700 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+          >
+            Equip Locally in Buddy Studio
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 };

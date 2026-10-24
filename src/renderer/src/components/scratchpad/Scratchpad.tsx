@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp, SCRATCHPAD_STORAGE_KEY } from '../../context/AppContext';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { Z_LAYERS } from '../../constants/layers';
 
 export type NoteHierarchyType = 'title' | 'heading' | 'subheading' | 'body';
 export type NoteListType =
@@ -37,11 +38,15 @@ export interface NoteAttachment {
 export interface NoteBlock {
   id: string;
   text: string;
+  /**
+   * Stage 3: Sanitized inline HTML containing only text and <b>, <i>, <u>, <s> tags.
+   */
+  html?: string;
   hierarchy: NoteHierarchyType;
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  strikethrough: boolean;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
   listType: NoteListType;
   checked?: boolean;
   attachment?: NoteAttachment;
@@ -49,76 +54,174 @@ export interface NoteBlock {
 
 const RICH_NOTES_BLOCKS_STORAGE_KEY = 'study_buddy_rich_note_blocks_v3';
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * Sanitizes an HTML string so ONLY text nodes and <b>, <i>, <u>, <s> tags remain.
+ */
+export function sanitizeInlineHtml(rawHtml: string): string {
+  if (typeof DOMParser === 'undefined') return rawHtml;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${rawHtml}</div>`, 'text/html');
+  const root = doc.body.firstElementChild;
+  if (!root) return '';
+
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml(node.textContent ?? '');
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+      let childrenHtml = '';
+      el.childNodes.forEach((child) => {
+        childrenHtml += walk(child);
+      });
+
+      if (tag === 'b' || tag === 'strong') return `<b>${childrenHtml}</b>`;
+      if (tag === 'i' || tag === 'em') return `<i>${childrenHtml}</i>`;
+      if (tag === 'u') return `<u>${childrenHtml}</u>`;
+      if (tag === 's' || tag === 'strike' || tag === 'del') {
+        return `<s>${childrenHtml}</s>`;
+      }
+      return childrenHtml;
+    }
+    return '';
+  }
+
+  let result = '';
+  root.childNodes.forEach((n) => {
+    result += walk(n);
+  });
+  return result;
+}
+
+/**
+ * Migrates legacy saved blocks (which used block-wide bold/italic/underline/strikethrough flags)
+ * into inline HTML while preserving 100% of existing notes.
+ */
+function migrateBlockToHtml(blk: NoteBlock): NoteBlock {
+  if (typeof blk.html === 'string') {
+    return {
+      ...blk,
+      html: sanitizeInlineHtml(blk.html),
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+    };
+  }
+
+  let migrated = escapeHtml(blk.text ?? '');
+  if (blk.bold && migrated) migrated = `<b>${migrated}</b>`;
+  if (blk.italic && migrated) migrated = `<i>${migrated}</i>`;
+  if (blk.underline && migrated) migrated = `<u>${migrated}</u>`;
+  if (blk.strikethrough && migrated) migrated = `<s>${migrated}</s>`;
+
+  return {
+    ...blk,
+    html: migrated,
+    bold: false,
+    italic: false,
+    underline: false,
+    strikethrough: false,
+  };
+}
+
+/**
+ * Converts sanitized inline HTML (<b>, <i>, <u>, <s>) to Markdown (**bold**, *italic*, <u>underline</u>, ~~strike~~).
+ */
+export function inlineHtmlToMarkdown(html: string): string {
+  if (typeof DOMParser === 'undefined') return html;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+  const root = doc.body.firstElementChild;
+  if (!root) return '';
+
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent ?? '';
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const tag = el.tagName.toLowerCase();
+      let inner = '';
+      el.childNodes.forEach((child) => {
+        inner += walk(child);
+      });
+      if (!inner) return '';
+      if (tag === 'b' || tag === 'strong') return `**${inner}**`;
+      if (tag === 'i' || tag === 'em') return `*${inner}*`;
+      if (tag === 'u') return `<u>${inner}</u>`;
+      if (tag === 's' || tag === 'strike' || tag === 'del') {
+        return `~~${inner}~~`;
+      }
+      return inner;
+    }
+    return '';
+  }
+
+  let out = '';
+  root.childNodes.forEach((n) => {
+    out += walk(n);
+  });
+  return out;
+}
+
 const DEFAULT_NOTE_BLOCKS: NoteBlock[] = [
   {
     id: 'blk-1',
     text: 'Chapter 4 – Cell respiration',
+    html: '<b>Chapter 4 – Cell respiration</b>',
     hierarchy: 'title',
-    bold: true,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'none',
   },
   {
     id: 'blk-2',
     text: 'Core Metabolic Pathways',
+    html: 'Core Metabolic Pathways',
     hierarchy: 'subheading',
-    bold: false,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'none',
   },
   {
     id: 'blk-3',
     text: 'Glycolysis: cytoplasm, 2 ATP net',
+    html: 'Glycolysis: cytoplasm, <b>2 ATP</b> net',
     hierarchy: 'body',
-    bold: false,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'bullet',
   },
   {
     id: 'blk-4',
     text: 'Krebs cycle: matrix, makes NADH + FADH2',
+    html: 'Krebs cycle: matrix, makes NADH + FADH2',
     hierarchy: 'body',
-    bold: false,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'bullet',
   },
   {
     id: 'blk-5',
     text: 'Electron transport chain: inner membrane, ~28 ATP',
+    html: 'Electron transport chain: inner membrane, ~28 ATP',
     hierarchy: 'body',
-    bold: false,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'bullet',
   },
   {
     id: 'blk-6',
     text: 'Review flashcards before the quiz at 4pm',
+    html: 'Review flashcards before the quiz at 4pm',
     hierarchy: 'body',
-    bold: false,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'checklist',
     checked: false,
   },
   {
     id: 'blk-7',
     text: 'Ask Mambo for a break after 25 min',
+    html: 'Ask Mambo for a break after 25 min',
     hierarchy: 'body',
-    bold: false,
-    italic: false,
-    underline: false,
-    strikethrough: false,
     listType: 'checklist',
     checked: true,
   },
@@ -155,10 +258,8 @@ function serializeBlocksToMarkdown(blocks: NoteBlock[]): string {
         numberedCounter = 0;
       }
 
-      let line = blk.text;
-      if (blk.bold && line) line = `**${line}**`;
-      if (blk.italic && line) line = `*${line}*`;
-      if (blk.strikethrough && line) line = `~~${line}~~`;
+      const migrated = migrateBlockToHtml(blk);
+      const line = inlineHtmlToMarkdown(migrated.html ?? '');
 
       const attachmentMd = blk.attachment
         ? `\n![${blk.attachment.name}](${blk.attachment.name})`
@@ -229,20 +330,20 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
     setInteractiveRegionHovered,
   } = useApp();
 
-  // Rich Blocks State
+  // Rich Blocks State with automatic migration from legacy block-level flags
   const [blocks, setBlocks] = useState<NoteBlock[]>(() => {
     try {
       const saved = localStorage.getItem(RICH_NOTES_BLOCKS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved) as NoteBlock[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          return parsed.map(migrateBlockToHtml);
         }
       }
     } catch {
       // Fall back to default blocks
     }
-    return DEFAULT_NOTE_BLOCKS;
+    return DEFAULT_NOTE_BLOCKS.map(migrateBlockToHtml);
   });
 
   const [activeBlockId, setActiveBlockId] = useState<string>(
@@ -250,6 +351,19 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
   );
   const [isListMenuOpen, setIsListMenuOpen] = useState<boolean>(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState<boolean>(false);
+
+  // Track active inline formatting state at current selection or caret
+  const [selectionFormats, setSelectionFormats] = useState<{
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    strikethrough: boolean;
+  }>({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikethrough: false,
+  });
 
   // Drag-and-Drop Inline Attachment State
   const [draggedSourceBlockId, setDraggedSourceBlockId] = useState<
@@ -285,10 +399,50 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
   const dragOffsetRef = useRef<{ startX: number; startY: number } | null>(null);
   const listMenuRef = useRef<HTMLDivElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
-  const blockInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const blockEditorRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const activeBlock =
     blocks.find((b) => b.id === activeBlockId) ?? blocks[0];
+
+  // Populate contentEditable DOM nodes whenever blocks are added or externally reset
+  useEffect(() => {
+    blocks.forEach((blk) => {
+      const el = blockEditorRefs.current[blk.id];
+      if (!el) return;
+      const desiredHtml = blk.html ?? escapeHtml(blk.text ?? '');
+      if (document.activeElement !== el && el.innerHTML !== desiredHtml) {
+        el.innerHTML = desiredHtml;
+      } else if (el.innerHTML === '' && desiredHtml !== '') {
+        el.innerHTML = desiredHtml;
+      }
+    });
+  }, [blocks]);
+
+  // Query selection command states to highlight B, I, U, S buttons accurately
+  const refreshSelectionFormatState = useCallback(() => {
+    try {
+      setSelectionFormats({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikethrough: document.queryCommandState('strikeThrough'),
+      });
+    } catch {
+      // Ignore if document is not focused
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl.getAttribute('data-note-editable') === 'true') {
+        refreshSelectionFormatState();
+      }
+    };
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () =>
+      document.removeEventListener('selectionchange', handleSelectionChange);
+  }, [refreshSelectionFormatState]);
 
   useEffect(() => {
     function handleOutsideClick(e: MouseEvent) {
@@ -355,11 +509,34 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
     updateActiveBlock({ hierarchy });
   };
 
-  const handleToggleInlineFormat = (
-    field: 'bold' | 'italic' | 'underline' | 'strikethrough'
+  /**
+   * Stage 3: Applies inline formatting ONLY to the highlighted text selection
+   * (or toggles typing format at a collapsed cursor) inside the active block.
+   */
+  const handleApplySelectionFormat = (
+    command: 'bold' | 'italic' | 'underline' | 'strikeThrough'
   ) => {
     if (!activeBlock) return;
-    updateActiveBlock({ [field]: !activeBlock[field] });
+    const editorEl = blockEditorRefs.current[activeBlock.id];
+    if (!editorEl) return;
+
+    if (document.activeElement !== editorEl) {
+      editorEl.focus();
+    }
+
+    document.execCommand(command, false);
+    const cleanHtml = sanitizeInlineHtml(editorEl.innerHTML);
+    const plainText = editorEl.textContent ?? '';
+
+    setBlocks((prev) =>
+      prev.map((item) =>
+        item.id === activeBlock.id
+          ? { ...item, html: cleanHtml, text: plainText }
+          : item
+      )
+    );
+
+    refreshSelectionFormatState();
   };
 
   const handleSelectListType = (listType: NoteListType) => {
@@ -379,11 +556,8 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
       {
         id: resetId,
         text: '',
+        html: '',
         hierarchy: 'body',
-        bold: false,
-        italic: false,
-        underline: false,
-        strikethrough: false,
         listType: 'none',
       },
     ]);
@@ -391,7 +565,7 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
   };
 
   const handleBlockKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
+    e: React.KeyboardEvent<HTMLDivElement>,
     blk: NoteBlock,
     index: number
   ) => {
@@ -401,11 +575,8 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
       const nextBlock: NoteBlock = {
         id: newId,
         text: '',
+        html: '',
         hierarchy: 'body',
-        bold: false,
-        italic: false,
-        underline: false,
-        strikethrough: false,
         listType: blk.listType,
         checked: blk.listType === 'checklist' ? false : undefined,
       };
@@ -418,11 +589,11 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
       setActiveBlockId(newId);
 
       window.setTimeout(() => {
-        blockInputRefs.current[newId]?.focus();
-      }, 10);
+        blockEditorRefs.current[newId]?.focus();
+      }, 15);
     } else if (
       e.key === 'Backspace' &&
-      blk.text === '' &&
+      (blk.text ?? '').trim() === '' &&
       !blk.attachment &&
       blocks.length > 1
     ) {
@@ -437,10 +608,31 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
       if (prevBlock) {
         setActiveBlockId(prevBlock.id);
         window.setTimeout(() => {
-          blockInputRefs.current[prevBlock.id]?.focus();
-        }, 10);
+          blockEditorRefs.current[prevBlock.id]?.focus();
+        }, 15);
       }
     }
+  };
+
+  /**
+   * Stage 3: Strips pasted content to plain text so external styles are never pasted.
+   */
+  const handleBlockPaste = (
+    e: React.ClipboardEvent<HTMLDivElement>,
+    blkId: string
+  ) => {
+    e.preventDefault();
+    const plain = e.clipboardData.getData('text/plain');
+    document.execCommand('insertText', false, plain);
+    const el = blockEditorRefs.current[blkId];
+    if (!el) return;
+    const cleanHtml = sanitizeInlineHtml(el.innerHTML);
+    const plainText = el.textContent ?? '';
+    setBlocks((prev) =>
+      prev.map((item) =>
+        item.id === blkId ? { ...item, html: cleanHtml, text: plainText } : item
+      )
+    );
   };
 
   const insertAttachmentAtActiveBlock = useCallback(
@@ -459,11 +651,8 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
         const newBlk: NoteBlock = {
           id: `blk-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
           text: '',
+          html: '',
           hierarchy: 'body',
-          bold: false,
-          italic: false,
-          underline: false,
-          strikethrough: false,
           listType: 'none',
           attachment: newAttachment,
         };
@@ -634,7 +823,6 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
     );
   };
 
-  // Notepad Window Resize Handler (Right, Bottom, Bottom-Right Corner)
   const handleStartWindowResize = (
     e: React.MouseEvent,
     direction: 'right' | 'bottom' | 'corner'
@@ -750,12 +938,13 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
         onMouseEnter={() => setInteractiveRegionHovered('scratchpad', true)}
         onMouseLeave={() => setInteractiveRegionHovered('scratchpad', false)}
         style={{
+          zIndex: Z_LAYERS.NOTEPAD,
           left: `${activeRect.x}px`,
           top: `${activeRect.y}px`,
           width: `${activeRect.width}px`,
           height: isScratchpadMinimized ? 'auto' : `${activeRect.height}px`,
         }}
-        className="fixed z-50 flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none font-sans"
+        className="fixed flex flex-col rounded-[22px] bg-[#1A1626] border border-[#2C253E] shadow-[0_24px_60px_rgba(0,0,0,0.78)] text-white overflow-hidden select-none font-sans"
       >
         <input
           ref={attachmentInputRef}
@@ -864,15 +1053,18 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
               </button>
             </div>
 
-            {/* 3. FORMATTING TOOLBAR */}
+            {/* 3. FORMATTING TOOLBAR (Applies only to highlighted selection or caret) */}
             <div className="flex items-center justify-between border-b border-[#231D34] bg-[#1A1528] px-5 py-2">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => handleToggleInlineFormat('bold')}
-                  title="Bold"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleApplySelectionFormat('bold');
+                  }}
+                  title="Bold highlighted text"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] font-bold transition cursor-pointer ${
-                    activeBlock?.bold
+                    selectionFormats.bold
                       ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
                       : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
@@ -882,10 +1074,13 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => handleToggleInlineFormat('italic')}
-                  title="Italic"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleApplySelectionFormat('italic');
+                  }}
+                  title="Italicize highlighted text"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] italic font-serif font-semibold transition cursor-pointer ${
-                    activeBlock?.italic
+                    selectionFormats.italic
                       ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
                       : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
@@ -895,10 +1090,13 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => handleToggleInlineFormat('underline')}
-                  title="Underline"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleApplySelectionFormat('underline');
+                  }}
+                  title="Underline highlighted text"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] underline font-semibold transition cursor-pointer ${
-                    activeBlock?.underline
+                    selectionFormats.underline
                       ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
                       : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
@@ -908,10 +1106,13 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => handleToggleInlineFormat('strikethrough')}
-                  title="Strikethrough"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleApplySelectionFormat('strikeThrough');
+                  }}
+                  title="Strikethrough highlighted text"
                   className={`flex h-7 w-7 items-center justify-center rounded-lg text-[12.5px] line-through font-semibold transition cursor-pointer ${
-                    activeBlock?.strikethrough
+                    selectionFormats.strikethrough
                       ? 'bg-indigo-600 !text-white dark:bg-[#2A244D] dark:text-white border border-indigo-700 dark:border-[#A594F9]'
                       : 'bg-zinc-200/80 text-zinc-800 hover:bg-zinc-300 dark:bg-[#120E1C] dark:text-[#C4B5FD] dark:hover:bg-[#251E38] dark:hover:text-white'
                   }`}
@@ -1000,16 +1201,9 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
                       ? 'text-[13.5px] font-semibold text-[#C4B5FD]'
                       : 'text-[13px] text-[#E2DFF0]';
 
-                  const inlineClasses = [
-                    blk.bold ? 'font-bold' : '',
-                    blk.italic ? 'italic' : '',
-                    blk.underline ? 'underline' : '',
-                    blk.strikethrough || blk.checked
-                      ? 'line-through opacity-60'
-                      : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ');
+                  const checkedClasses = blk.checked
+                    ? 'line-through opacity-60'
+                    : '';
 
                   const isDropTarget =
                     dropTargetBlockId === blk.id &&
@@ -1137,25 +1331,42 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
                           </button>
                         )}
 
-                        <input
+                        <div
                           ref={(el) => {
-                            blockInputRefs.current[blk.id] = el;
+                            blockEditorRefs.current[blk.id] = el;
                           }}
-                          type="text"
-                          value={blk.text}
-                          onFocus={() => setActiveBlockId(blk.id)}
-                          onChange={(e) =>
+                          contentEditable
+                          suppressContentEditableWarning
+                          data-note-editable="true"
+                          role="textbox"
+                          aria-label={`Notepad line ${idx + 1}`}
+                          onFocus={() => {
+                            setActiveBlockId(blk.id);
+                            refreshSelectionFormatState();
+                          }}
+                          onKeyUp={refreshSelectionFormatState}
+                          onMouseUp={refreshSelectionFormatState}
+                          onPaste={(e) => handleBlockPaste(e, blk.id)}
+                          onInput={(e) => {
+                            const target = e.currentTarget;
+                            const cleanHtml = sanitizeInlineHtml(
+                              target.innerHTML
+                            );
+                            const plainText = target.textContent ?? '';
                             setBlocks((prev) =>
                               prev.map((item) =>
                                 item.id === blk.id
-                                  ? { ...item, text: e.target.value }
+                                  ? {
+                                      ...item,
+                                      html: cleanHtml,
+                                      text: plainText,
+                                    }
                                   : item
                               )
-                            )
-                          }
+                            );
+                          }}
                           onKeyDown={(e) => handleBlockKeyDown(e, blk, idx)}
-                          aria-label={`Notepad line ${idx + 1}`}
-                          className={`w-full bg-transparent focus:outline-none select-text min-h-[22px] ${hierarchyClasses} ${inlineClasses}`}
+                          className={`w-full bg-transparent focus:outline-none select-text min-h-[22px] break-words ${hierarchyClasses} ${checkedClasses}`}
                         />
                       </div>
                     </div>
@@ -1164,7 +1375,7 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({
               </div>
             </div>
 
-            {/* 5. FOOTER: Single "Saved on this device" status */}
+            {/* 5. FOOTER */}
             <div className="relative flex items-center justify-between gap-2 border-t border-[#241E34] bg-[#151120] px-4 py-3">
               <div className="flex items-center gap-2">
                 <button

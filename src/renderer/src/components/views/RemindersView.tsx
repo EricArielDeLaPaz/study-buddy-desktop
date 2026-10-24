@@ -7,6 +7,11 @@ import {
   loadActiveCompanionSelection,
 } from './BuddyStudioView';
 import { ConfirmModal } from '../common/ConfirmModal';
+import {
+  loadStorage,
+  saveStorage,
+  STORAGE_KEYS,
+} from '../../utils/storage';
 
 export interface HabitReminderItem {
   id: string;
@@ -20,7 +25,7 @@ export interface HabitReminderItem {
   boundSlotLabel: string;
 }
 
-const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
+export const DEFAULT_REMINDERS_ROSTER: HabitReminderItem[] = [
   {
     id: 'rem-water',
     name: 'Drink Water',
@@ -73,9 +78,31 @@ const ICON_CHOICES = ['💧', '🚻', '🪑', '🧘', '🚶', '🌬️', '📝',
 export const RemindersView: React.FC = () => {
   const { triggerOverlay, setCurrentAnimationSlot } = useApp();
 
-  const [reminders, setReminders] = useState<HabitReminderItem[]>(
-    DEFAULT_REMINDERS_ROSTER
+  // Stage 5: Persist and reload reminders from localStorage
+  const [reminders, setReminders] = useState<HabitReminderItem[]>(() =>
+    loadStorage<HabitReminderItem[]>(
+      STORAGE_KEYS.REMINDERS,
+      DEFAULT_REMINDERS_ROSTER
+    )
   );
+
+  useEffect(() => {
+    saveStorage(STORAGE_KEYS.REMINDERS, reminders);
+  }, [reminders]);
+
+  useEffect(() => {
+    const handleReset = () => {
+      setReminders(
+        loadStorage<HabitReminderItem[]>(
+          STORAGE_KEYS.REMINDERS,
+          DEFAULT_REMINDERS_ROSTER
+        )
+      );
+    };
+    window.addEventListener('study-buddy:data-reset', handleReset);
+    return () =>
+      window.removeEventListener('study-buddy:data-reset', handleReset);
+  }, []);
 
   const [activeBuddy, setActiveBuddy] = useState<ActiveCompanionSelection>(
     loadActiveCompanionSelection
@@ -103,36 +130,28 @@ export const RemindersView: React.FC = () => {
       : DEFAULT_ANIMATION_SLOTS;
 
   const [editingReminderId, setEditingReminderId] = useState<string | null>(
-    DEFAULT_REMINDERS_ROSTER[0].id
+    () => reminders[0]?.id ?? null
   );
 
-  // Confirmation modal state for deleting a reminder
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
 
-  // Right-Side Form Fields
-  const [formName, setFormName] = useState<string>(
-    DEFAULT_REMINDERS_ROSTER[0].name
-  );
+  const initialFirst = reminders[0] ?? DEFAULT_REMINDERS_ROSTER[0];
+  const [formName, setFormName] = useState<string>(initialFirst.name);
   const [formFrequency, setFormFrequency] = useState<number>(
-    DEFAULT_REMINDERS_ROSTER[0].frequencyMinutes
+    initialFirst.frequencyMinutes
   );
   const [formDuration, setFormDuration] = useState<number>(
-    DEFAULT_REMINDERS_ROSTER[0].durationMinutes
+    initialFirst.durationMinutes
   );
   const [formActiveDays, setFormActiveDays] = useState<number[]>(
-    DEFAULT_REMINDERS_ROSTER[0].activeDays
+    initialFirst.activeDays
   );
-  const [formMessage, setFormMessage] = useState<string>(
-    DEFAULT_REMINDERS_ROSTER[0].message
-  );
-  const [formIcon, setFormIcon] = useState<string>(
-    DEFAULT_REMINDERS_ROSTER[0].icon
-  );
+  const [formMessage, setFormMessage] = useState<string>(initialFirst.message);
+  const [formIcon, setFormIcon] = useState<string>(initialFirst.icon);
   const [formSlotId, setFormSlotId] = useState<string>(
     () => availableBuddySlots[0]?.id ?? 'slot-water-break'
   );
 
-  // Custom Figma Dropdown State
   const [isSlotDropdownOpen, setIsSlotDropdownOpen] = useState<boolean>(false);
   const slotDropdownRef = useRef<HTMLDivElement | null>(null);
 
@@ -339,7 +358,6 @@ export const RemindersView: React.FC = () => {
                     Preview
                   </button>
 
-                  {/* Edit Icon (Pencil) Button */}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -374,7 +392,7 @@ export const RemindersView: React.FC = () => {
           })}
         </div>
 
-        {/* Right Column: Editable Reminder Form with "Delete Reminder" Action */}
+        {/* Right Column: Editable Reminder Form */}
         <form
           onSubmit={handleSubmitForm}
           className="col-span-5 flex flex-col gap-3.5 rounded-2xl border border-[#52438F] bg-[#181424] p-5"
@@ -399,7 +417,6 @@ export const RemindersView: React.FC = () => {
             )}
           </div>
 
-          {/* Name Input */}
           <div>
             <label className="block text-[12px] font-medium text-[#B8B2CC]">
               Reminder Name
@@ -413,7 +430,6 @@ export const RemindersView: React.FC = () => {
             />
           </div>
 
-          {/* Frequency & Time to Complete Steppers */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-[#2A233D] bg-[#120F1D] p-3">
               <span className="block text-[11px] text-[#9E97B8]">
@@ -468,7 +484,6 @@ export const RemindersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Clean Unified Animation Slot Dropdown */}
           <div className="relative" ref={slotDropdownRef}>
             <label className="block text-[12px] font-medium text-[#B8B2CC]">
               Animation Slot
@@ -519,7 +534,6 @@ export const RemindersView: React.FC = () => {
             )}
           </div>
 
-          {/* Active Days Picker (M T W T F S S) */}
           <div>
             <span className="block text-[12px] font-medium text-[#B8B2CC]">
               Active days
@@ -545,7 +559,6 @@ export const RemindersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Custom Message Input */}
           <div>
             <label className="block text-[12px] font-medium text-[#B8B2CC]">
               Custom Mambo message
@@ -559,7 +572,6 @@ export const RemindersView: React.FC = () => {
             />
           </div>
 
-          {/* Icon Selector */}
           <div>
             <span className="block text-[12px] font-medium text-[#B8B2CC]">
               Icon
@@ -591,7 +603,6 @@ export const RemindersView: React.FC = () => {
         </form>
       </div>
 
-      {/* Confirmation Modal for Deleting a Reminder */}
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         title={`Delete "${formName || 'Reminder'}"?`}
