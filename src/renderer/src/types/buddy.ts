@@ -35,9 +35,13 @@ export interface OverlayState {
    */
   remainingSeconds?: number;
   /**
-   * Used for `overlay_intervention` (e.g., "Discord", "YouTube", "Twitter").
+   * Used for `overlay_intervention` (e.g., "YouTube", "Reddit", "Steam").
    */
   targetAppOrSite?: string;
+  /**
+   * Distinguishes website rules ("Minimize <site>") from desktop app rules ("Close <app>").
+   */
+  targetKind?: 'website' | 'app';
   strictMode?: boolean;
   createdAt: number;
 }

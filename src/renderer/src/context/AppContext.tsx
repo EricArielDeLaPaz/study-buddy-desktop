@@ -44,6 +44,7 @@ Ask Mambo for a break after 25 min.`;
 
 export interface TriggerOverlayOptions {
   targetAppOrSite?: string;
+  targetKind?: 'website' | 'app';
   durationSeconds?: number;
   strictMode?: boolean;
   message?: string;
@@ -176,6 +177,7 @@ function createOverlayPayload(
         buddyName: 'Mambo',
         message: options?.message ?? `No! Don't go on ${target}`,
         targetAppOrSite: target,
+        targetKind: options?.targetKind ?? 'website',
         strictMode: options?.strictMode ?? false,
         createdAt: Date.now(),
       };
@@ -358,12 +360,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       const dismissedKind = activeOverlay?.kind;
       const targetName = activeOverlay?.targetAppOrSite;
 
-      // Immediately inform main process that the intervention overlay is dismissed
       if (dismissedKind === 'overlay_intervention') {
         window.electronAPI?.notifyInterventionState?.(false);
       }
 
-      // If user clicked "Close <target>", politely ask OS to close app or minimize browser
       if (reason === 'close_target' && targetName) {
         void window.electronAPI?.closeOrMinimizeTarget?.(targetName);
       }

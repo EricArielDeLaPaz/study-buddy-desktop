@@ -5,6 +5,7 @@ export type OverlayTriggerType = 'hydration' | 'bathroom' | 'intervention';
 export interface OverlayTriggerPayload {
   durationSeconds?: number;
   targetAppOrSite?: string;
+  targetKind?: 'website' | 'app';
   strictMode?: boolean;
   message?: string;
 }
@@ -25,6 +26,7 @@ export interface WatcherAppRule {
 }
 
 export interface ElectronAPI {
+  platform: string;
   setIgnoreMouseEvents: (ignore: boolean, forward?: boolean) => void;
   exportMarkdown: (
     content: string,
@@ -42,6 +44,7 @@ export interface ElectronAPI {
   }) => void;
   notifyInterventionState: (active: boolean) => void;
   closeOrMinimizeTarget: (targetName: string) => Promise<{ ok: boolean }>;
+  quitApp: () => void;
 }
 
 declare global {

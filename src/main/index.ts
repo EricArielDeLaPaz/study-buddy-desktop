@@ -12,6 +12,7 @@ export type OverlayTriggerType = 'hydration' | 'bathroom' | 'intervention';
 export interface OverlayTriggerPayload {
   durationSeconds?: number;
   targetAppOrSite?: string;
+  targetKind?: 'website' | 'app';
   strictMode?: boolean;
   message?: string;
 }
@@ -28,6 +29,7 @@ interface WatcherAppRule {
 interface ForegroundWindowInfo {
   pid: number;
   rawProcessName: string;
+  bundleId: string;
   processName: string;
   windowTitle: string;
 }
@@ -40,12 +42,12 @@ interface CapturedMatchTarget {
   strictBlock: boolean;
   pid: number;
   rawProcessName: string;
+  bundleId: string;
 }
 
 let mainWindow: BrowserWindow | null = null;
-let isQuitting = false;
 
-// Stage 8 Watcher & Cooldown State
+// Stage P1 Watcher & Cooldown State
 let isFocusSessionRunning = false;
 let isInterventionOverlayActive = false;
 let watchedRules: WatcherAppRule[] = [];
@@ -70,10 +72,6 @@ const KNOWN_BROWSERS = [
   'opera',
   'vivaldi',
 ];
-
-app.on('before-quit', () => {
-  isQuitting = true;
-});
 
 function assertAlwaysOnTop(win: BrowserWindow | null): void {
   if (!win || win.isDestroyed()) return;
@@ -125,16 +123,7 @@ function createMainWindow(): BrowserWindow {
     assertAlwaysOnTop(win);
   });
 
-  win.on('close', (e) => {
-    if (!isQuitting) {
-      e.preventDefault();
-      if (!win.isDestroyed()) {
-        win.webContents.send('buddy:minimize-to-companion');
-        win.setIgnoreMouseEvents(true, { forward: true });
-      }
-    }
-  });
-
+  // Stage P2: OS-level close requests (Alt+F4, Cmd+Q) really quit the app.
   win.on('closed', () => {
     if (mainWindow === win) {
       mainWindow = null;
@@ -166,9 +155,9 @@ export function dispatchOverlayTrigger(
 }
 
 /**
- * Queries the active foreground window using ONLY the built-in OS tools:
+ * Queries the active foreground window using ONLY built-in OS tools:
  * - Windows: PowerShell Win32 API (returns PID, ProcessName, and WindowTitle)
- * - macOS: osascript System Events (returns unix id, process name, and front window title)
+ * - macOS: osascript System Events (returns unix id, process name, bundle identifier, and front window title)
  */
 async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
   try {
@@ -192,7 +181,7 @@ async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
         if ($pidOut -gt 0) {
           $p = Get-Process -Id $pidOut -ErrorAction SilentlyContinue
           if ($null -ne $p) {
-            Write-Output "$pidOut|$($p.ProcessName)|$($sb.ToString())"
+            Write-Output "$pidOut|$($p.ProcessName)||$($sb.ToString())"
           }
         }
       `;
@@ -203,12 +192,14 @@ async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
       );
       const trimmed = stdout.trim();
       if (!trimmed) return null;
-      const [pidStr = '0', rawProc = '', ...titleParts] = trimmed.split('|');
+      const [pidStr = '0', rawProc = '', bundleId = '', ...titleParts] =
+        trimmed.split('|');
       const pid = parseInt(pidStr, 10) || 0;
       const title = titleParts.join('|');
       return {
         pid,
         rawProcessName: rawProc.trim(),
+        bundleId: bundleId.trim(),
         processName: rawProc.trim().toLowerCase(),
         windowTitle: title.trim().toLowerCase(),
       };
@@ -220,11 +211,15 @@ async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
           set frontApp to first application process whose frontmost is true
           set appPid to unix id of frontApp
           set appName to name of frontApp
+          set appBundle to ""
+          try
+            set appBundle to bundle identifier of frontApp
+          end try
           set winTitle to ""
           try
             set winTitle to name of front window of frontApp
           end try
-          return (appPid as text) & "|" & appName & "|" & winTitle
+          return (appPid as text) & "|" & appName & "|" & appBundle & "|" & winTitle
         end tell
       `;
       const { stdout } = await execFileAsync('osascript', ['-e', osaScript], {
@@ -232,12 +227,14 @@ async function getForegroundWindowInfo(): Promise<ForegroundWindowInfo | null> {
       });
       const trimmed = stdout.trim();
       if (!trimmed) return null;
-      const [pidStr = '0', rawProc = '', ...titleParts] = trimmed.split('|');
+      const [pidStr = '0', rawProc = '', bundleId = '', ...titleParts] =
+        trimmed.split('|');
       const pid = parseInt(pidStr, 10) || 0;
       const title = titleParts.join('|');
       return {
         pid,
         rawProcessName: rawProc.trim(),
+        bundleId: bundleId.trim(),
         processName: rawProc.trim().toLowerCase(),
         windowTitle: title.trim().toLowerCase(),
       };
@@ -286,7 +283,8 @@ async function pollForegroundWindow(): Promise<void> {
     fg.pid === process.pid ||
     fg.processName.includes('electron') ||
     fg.processName.includes('study-buddy') ||
-    fg.processName.includes('study buddy')
+    fg.processName.includes('study buddy') ||
+    fg.bundleId === 'tech.ericarieldelapaz.studybuddy'
   ) {
     return;
   }
@@ -320,7 +318,6 @@ async function pollForegroundWindow(): Promise<void> {
         (domainOrProcBase.length > 2 &&
           fgBaseProcess.includes(domainOrProcBase));
     } else if (resolvedKind === 'website' && isBrowser && fg.windowTitle) {
-      // Browser window title matching (matches the active tab title)
       isMatch =
         fg.windowTitle.includes(tagLower) ||
         (domainOrProcBase.length > 2 &&
@@ -338,7 +335,7 @@ async function pollForegroundWindow(): Promise<void> {
         continue;
       }
 
-      // Capture the exact matched foreground process so "Close <target>" acts only on it
+      // Capture the exact matched foreground process & bundleId at match time
       lastCapturedMatch = {
         ruleId: rule.id,
         targetKey: tagLower,
@@ -347,6 +344,7 @@ async function pollForegroundWindow(): Promise<void> {
         strictBlock: Boolean(rule.strictBlock),
         pid: fg.pid,
         rawProcessName: fg.rawProcessName,
+        bundleId: fg.bundleId,
       };
 
       isInterventionOverlayActive = true;
@@ -354,6 +352,7 @@ async function pollForegroundWindow(): Promise<void> {
 
       dispatchOverlayTrigger('intervention', {
         targetAppOrSite: cleanTagName,
+        targetKind: resolvedKind,
         strictMode: Boolean(rule.strictBlock),
       });
       break;
@@ -390,11 +389,6 @@ function registerIpcHandlers(): void {
     }
   );
 
-  /**
-   * Tracks when an intervention overlay is shown or dismissed in the renderer.
-   * When dismissed, starts a fresh 30-second cooldown for strict rules (or 5-minute
-   * cooldown for non-strict rules) so strict overlays never immediately re-open.
-   */
   ipcMain.on(
     'buddy:notify-intervention-state',
     (_event, payload: { active: boolean }) => {
@@ -408,10 +402,22 @@ function registerIpcHandlers(): void {
   );
 
   /**
-   * Safely closes or minimizes ONLY the captured process that triggered the match:
-   * - Desktop app rule: politely asks the captured process to close its main window.
-   * - Website rule: minimizes the captured browser window without closing it.
-   * - Never interpolates user strings into scripts (uses env vars on Windows and argv on macOS).
+   * Stage P2: Real Quit IPC handler for the Close window control.
+   */
+  ipcMain.on('buddy:quit-app', () => {
+    app.quit();
+  });
+
+  /**
+   * Stage P1: Acts ONLY on the captured foreground process from match time:
+   * - Desktop app rule ("Close <app>"):
+   *   - Windows: calls CloseMainWindow() on the captured PID. If still running after 3s,
+   *     retries CloseMainWindow() once. Never force-kills. (Apps with unsaved changes
+   *     show their "Save changes?" prompt; tray apps like Discord hide to the system tray.)
+   *   - macOS: runs `tell application id "<bundle id>" to quit` via argv. Never force-kills.
+   * - Website rule ("Minimize <site>"):
+   *   - Windows: minimizes the captured browser window via ShowWindow(hWnd, SW_MINIMIZE).
+   *   - macOS: minimizes the captured browser's front window by bundleId / appName (AXMinimized).
    */
   ipcMain.handle(
     'buddy:close-or-minimize-target',
@@ -421,18 +427,17 @@ function registerIpcHandlers(): void {
         return { ok: false };
       }
 
-      // Guard: never close or minimize Study Buddy / Electron itself
       const procLower = captured.rawProcessName.toLowerCase();
       if (
         captured.pid === process.pid ||
         procLower === 'electron' ||
         procLower.includes('study-buddy') ||
-        procLower.includes('study buddy')
+        procLower.includes('study buddy') ||
+        captured.bundleId === 'tech.ericarieldelapaz.studybuddy'
       ) {
         return { ok: false };
       }
 
-      // Refresh cooldown from the moment the user clicks Close
       applyCooldownForMatch(captured);
 
       try {
@@ -442,7 +447,7 @@ function registerIpcHandlers(): void {
               using System;
               using System.Runtime.InteropServices;
               public class Win32WindowAction {
-                [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+                [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
               }
 "@
             $targetPid = [int]$env:SB_TARGET_PID
@@ -450,11 +455,16 @@ function registerIpcHandlers(): void {
             $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
             if ($null -ne $p -and $p.MainWindowHandle -ne [IntPtr]::Zero) {
               if ($mode -eq "website") {
-                # 6 = SW_MINIMIZE (minimize browser window; never close it)
-                [void][Win32WindowAction]::ShowWindowAsync($p.MainWindowHandle, 6)
+                # 6 = SW_MINIMIZE (minimize captured browser window; never close it)
+                [void][Win32WindowAction]::ShowWindow($p.MainWindowHandle, 6)
               } else {
-                # Politely ask the desktop app to close its main window (no force-kill)
+                # Politely ask the desktop app to close its main window
                 [void]$p.CloseMainWindow()
+                Start-Sleep -Seconds 3
+                $stillRunning = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+                if ($null -ne $stillRunning -and $stillRunning.MainWindowHandle -ne [IntPtr]::Zero) {
+                  [void]$stillRunning.CloseMainWindow()
+                }
               }
             }
           `;
@@ -462,7 +472,7 @@ function registerIpcHandlers(): void {
             'powershell.exe',
             ['-NoProfile', '-NonInteractive', '-Command', psScript],
             {
-              timeout: 2000,
+              timeout: 5500,
               env: {
                 ...process.env,
                 SB_TARGET_PID: String(captured.pid),
@@ -473,39 +483,49 @@ function registerIpcHandlers(): void {
           return { ok: true };
         }
 
-        if (process.platform === 'darwin' && captured.rawProcessName) {
+        if (process.platform === 'darwin') {
           const osaScript = `
             on run argv
               set targetAppName to item 1 of argv
-              set targetMode to item 2 of argv
-              if targetAppName is "" or targetAppName is "Electron" or targetAppName is "Study Buddy" then
+              set targetBundleId to item 2 of argv
+              set targetMode to item 3 of argv
+              if targetAppName is "Electron" or targetAppName is "Study Buddy" or targetBundleId is "tech.ericarieldelapaz.studybuddy" then
                 return
               end if
               if targetMode is "app" then
-                try
-                  tell application targetAppName
-                    if (count of windows) > 0 then
-                      close front window
-                    end if
-                  end tell
-                end try
+                if targetBundleId is not "" then
+                  try
+                    tell application id targetBundleId to quit
+                    return
+                  end try
+                end if
+                if targetAppName is not "" then
+                  try
+                    tell application targetAppName to quit
+                  end try
+                end if
               else
                 try
-                  tell application targetAppName
-                    if (count of windows) > 0 then
-                      set miniaturized of front window to true
+                  tell application "System Events"
+                    if targetBundleId is not "" then
+                      set targetProc to first application process whose bundle identifier is targetBundleId
+                    else
+                      set targetProc to process targetAppName
+                    end if
+                    if (count of windows of targetProc) > 0 then
+                      set value of attribute "AXMinimized" of window 1 of targetProc to true
                     end if
                   end tell
                 on error
-                  try
-                    tell application "System Events"
-                      tell process targetAppName
+                  if targetBundleId is not "" then
+                    try
+                      tell application id targetBundleId
                         if (count of windows) > 0 then
-                          set value of attribute "AXMinimized" of window 1 to true
+                          set miniaturized of front window to true
                         end if
                       end tell
-                    end tell
-                  end try
+                    end try
+                  end if
                 end try
               end if
             end run
@@ -516,9 +536,10 @@ function registerIpcHandlers(): void {
               '-e',
               osaScript,
               captured.rawProcessName,
+              captured.bundleId,
               captured.resolvedKind,
             ],
-            { timeout: 2000 }
+            { timeout: 3000 }
           );
           return { ok: true };
         }
@@ -622,7 +643,5 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });

@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ChibiCompanion, ChibiCompanionMode } from './ChibiCompanion';
+import { loadActiveCompanionSelection } from '../views/BuddyStudioView';
 import { playChime } from '../../utils/audio';
 
 export interface FloatingMascotDockProps {
@@ -38,6 +39,9 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
     setInteractiveRegionHovered,
   } = useApp();
 
+  const [equippedName, setEquippedName] = useState<string>(
+    () => loadActiveCompanionSelection().name || 'Mambo'
+  );
   const [tipIndex, setTipIndex] = useState<number>(0);
   const [isTipVisible, setIsTipVisible] = useState<boolean>(false);
   const [isCelebratingClick, setIsCelebratingClick] = useState<boolean>(false);
@@ -49,13 +53,25 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         : 540,
   }));
 
-  // Track whether Mambo is currently in the top half or bottom half of the viewport
   const [renderBubbleBelow, setRenderBubbleBelow] = useState<boolean>(false);
 
   const dragOffsetRef = useRef<{ startX: number; startY: number } | null>(null);
   const hasDraggedRef = useRef<boolean>(false);
   const tipTimeoutRef = useRef<number | null>(null);
   const celebrateTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const handleSyncName = () => {
+      setEquippedName(loadActiveCompanionSelection().name || 'Mambo');
+    };
+    window.addEventListener('study-buddy:companion-updated', handleSyncName);
+    return () => {
+      window.removeEventListener(
+        'study-buddy:companion-updated',
+        handleSyncName
+      );
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -78,7 +94,6 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
       return;
     }
 
-    // Detect Mambo's vertical position relative to viewport midpoint
     const viewportMidpointY =
       typeof window !== 'undefined' ? window.innerHeight / 2 : 400;
     setRenderBubbleBelow(position.y < viewportMidpointY);
@@ -152,7 +167,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
   const resolvedMode: ChibiCompanionMode = isCelebratingClick
     ? 'celebrating'
     : sessionStatus === 'paused'
-    ? 'bathroom'
+    ? 'sleeping'
     : 'idle_studying';
 
   return (
@@ -169,14 +184,13 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
       }}
       className="fixed z-50 select-none"
     >
-      {/* Adaptive Speech Bubble (Positioned Absolutely Above or Below Without Shifting Mambo) */}
+      {/* Adaptive Speech Bubble */}
       {isTipVisible && (
         <div
           className={`absolute left-0 z-50 w-[235px] rounded-2xl border border-[#4E4187] bg-[#241D38]/95 px-3.5 py-2.5 text-[12px] font-medium leading-snug text-white shadow-[0_14px_30px_rgba(0,0,0,0.65)] backdrop-blur-md ${
             renderBubbleBelow ? 'top-full mt-2.5' : 'bottom-full mb-2.5'
           }`}
         >
-          {/* Directional Pointer Caret */}
           {renderBubbleBelow ? (
             <div
               className="absolute -top-2 left-8 h-0 w-0"
@@ -199,7 +213,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
 
           <div className="mb-0.5 flex items-center justify-between gap-2">
             <span className="text-[11px] font-bold text-[#A594F9]">
-              Mambo says:
+              {equippedName} says:
             </span>
             <button
               type="button"
@@ -217,14 +231,13 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         </div>
       )}
 
-      {/* Compact Floating Mambo Companion Dock */}
+      {/* Compact Floating Companion Dock (No OS Window Controls) */}
       <div
         onMouseDown={handleMouseDown}
         onClick={handleMascotClick}
-        title="Click Mambo for a study tip, or drag to reposition"
+        title="Click companion for a study tip, or drag to reposition"
         className="group relative flex items-center gap-3 rounded-2xl border border-[#342D4B] bg-[#181424]/95 p-2.5 pr-12 shadow-[0_16px_40px_rgba(0,0,0,0.75)] backdrop-blur-md transition-all duration-200 hover:border-[#534682] cursor-pointer"
       >
-        {/* Top-Right Expand Arrow Button (⤢) */}
         <button
           type="button"
           data-no-drag="true"
@@ -240,7 +253,6 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
           ⤢
         </button>
 
-        {/* Bottom-Right Open/Close Notepad Icon Button */}
         <button
           type="button"
           data-no-drag="true"
@@ -281,7 +293,7 @@ export const FloatingMascotDock: React.FC<FloatingMascotDockProps> = ({
         <div className="flex flex-col pr-1">
           <div className="flex items-center gap-1.5">
             <span className="text-[13.5px] font-bold tracking-tight text-white">
-              Mambo
+              {equippedName}
             </span>
             <span
               className={`h-2 w-2 rounded-full ${

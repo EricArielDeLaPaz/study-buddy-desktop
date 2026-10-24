@@ -1,22 +1,34 @@
 // src/renderer/src/components/views/BuddyStudioView.tsx
 import React, { useState, useEffect, useRef } from 'react';
+import { Trash2 } from 'lucide-react';
 import {
+  ACTIVE_COMPANION_STORAGE_KEY,
   ChibiCompanion,
   ChibiCompanionMode,
+  CompanionCharacterId,
+  CustomSlotUpload,
+  inferCharacterIdFromAnyId,
+  modeToCanonicalSlotKey,
 } from '../companion/ChibiCompanion';
 import {
-  COMPANION_LEVEL_ROSTER,
+  getDynamicCompanionRoster,
   CompanionMiniAvatar,
   CompanionRosterUnlock,
 } from './ProgressView';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { playChime } from '../../utils/audio';
 
-export type CustomSlotKey = 'Idle' | 'Hydration' | 'Break' | 'Alert' | string;
+export { ACTIVE_COMPANION_STORAGE_KEY };
+export type { CustomSlotUpload };
 
-export interface CustomSlotUpload {
-  fileName: string;
-  dataUrl: string;
-}
+export type CustomSlotKey =
+  | 'Idle'
+  | 'Hydration'
+  | 'Break'
+  | 'Alert'
+  | 'Success'
+  | 'Sleeping'
+  | string;
 
 export interface BuddyAnimationSlotConfig {
   id: string;
@@ -31,6 +43,7 @@ export interface BuddyAnimationSlotConfig {
 export interface UserBuddyPreset {
   id: string;
   name: string;
+  characterId?: CompanionCharacterId;
   source: 'Marketplace' | 'Custom';
   accentBg: string;
   defaultMode: ChibiCompanionMode;
@@ -41,12 +54,12 @@ export interface UserBuddyPreset {
 export interface ActiveCompanionSelection {
   id: string;
   name: string;
+  characterId?: CompanionCharacterId;
   kind: 'progression' | 'Marketplace' | 'Custom';
   slots: BuddyAnimationSlotConfig[];
 }
 
 export const USER_BUDDY_PRESETS_STORAGE_KEY = 'study_buddy_user_presets_v2';
-export const ACTIVE_COMPANION_STORAGE_KEY = 'study_buddy_active_companion_v1';
 
 export const DEFAULT_ANIMATION_SLOTS: BuddyAnimationSlotConfig[] = [
   {
@@ -55,6 +68,14 @@ export const DEFAULT_ANIMATION_SLOTS: BuddyAnimationSlotConfig[] = [
     slotKey: 'Idle',
     description: 'Calm breathing float & natural blink cycle',
     mode: 'idle_studying',
+    reminderTrigger: 'None',
+  },
+  {
+    id: 'slot-reading-focus',
+    label: 'Idle reading',
+    slotKey: 'Idle',
+    description: 'Page-scanning eyes & focused reading posture',
+    mode: 'idle_reading',
     reminderTrigger: 'None',
   },
   {
@@ -81,12 +102,21 @@ export const DEFAULT_ANIMATION_SLOTS: BuddyAnimationSlotConfig[] = [
     mode: 'intervention',
     reminderTrigger: 'App Rules Nudge',
   },
+  {
+    id: 'slot-sleeping',
+    label: 'Sleeping',
+    slotKey: 'Sleeping',
+    description: 'Restful sleeping pose when session is paused',
+    mode: 'sleeping',
+    reminderTrigger: 'None',
+  },
 ];
 
 export const DEFAULT_USER_BUDDY_PRESETS: UserBuddyPreset[] = [
   {
     id: 'preset-mkt-cozy',
     name: 'Cozy Library',
+    characterId: 'cozy_library',
     source: 'Marketplace',
     accentBg: '#2B2353',
     defaultMode: 'idle_studying',
@@ -95,55 +125,11 @@ export const DEFAULT_USER_BUDDY_PRESETS: UserBuddyPreset[] = [
   {
     id: 'preset-mkt-lavender',
     name: 'Lavender Focus',
+    characterId: 'lavender_focus',
     source: 'Marketplace',
     accentBg: '#3C3173',
     defaultMode: 'hydration',
     slots: DEFAULT_ANIMATION_SLOTS,
-  },
-  {
-    id: 'preset-custom-night',
-    name: 'Midnight Matcha',
-    source: 'Custom',
-    accentBg: '#4C2E85',
-    defaultMode: 'celebrating',
-    slots: [
-      {
-        id: 'custom-slot-1',
-        label: 'Matcha Sipping Loop',
-        slotKey: 'Hydration',
-        description: 'Custom iced matcha hydration animation',
-        mode: 'hydration',
-        reminderTrigger: 'Drink Water',
-        uploadedAnimation: {
-          fileName: 'matcha-sip-loop.webm',
-          dataUrl: '',
-        },
-      },
-      {
-        id: 'custom-slot-2',
-        label: 'Cozy Desk Stretch',
-        slotKey: 'Break',
-        description: 'Custom shoulder roll animation',
-        mode: 'bathroom',
-        reminderTrigger: 'Stretch',
-        uploadedAnimation: {
-          fileName: 'cozy-desk-stretch.webm',
-          dataUrl: '',
-        },
-      },
-      {
-        id: 'custom-slot-3',
-        label: 'Late Night Coding Idle',
-        slotKey: 'Idle',
-        description: 'Custom lo-fi study loop',
-        mode: 'idle_studying',
-        reminderTrigger: 'None',
-        uploadedAnimation: {
-          fileName: 'night-coding-idle.webm',
-          dataUrl: '',
-        },
-      },
-    ],
   },
 ];
 
@@ -153,7 +139,10 @@ export function loadUserBuddyPresets(): UserBuddyPreset[] {
     if (raw) {
       const parsed = JSON.parse(raw) as UserBuddyPreset[];
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.map((p) => ({
+          ...p,
+          characterId: p.characterId ?? inferCharacterIdFromAnyId(p.id),
+        }));
       }
     }
   } catch {
@@ -168,15 +157,20 @@ export function loadActiveCompanionSelection(): ActiveCompanionSelection {
     if (raw) {
       const parsed = JSON.parse(raw) as ActiveCompanionSelection;
       if (parsed && parsed.id && Array.isArray(parsed.slots)) {
-        return parsed;
+        return {
+          ...parsed,
+          characterId:
+            parsed.characterId ?? inferCharacterIdFromAnyId(parsed.id),
+        };
       }
     }
   } catch {
     // Ignore parse error
   }
   return {
-    id: 'buddy-lv7',
-    name: 'Round Glasses Mambo',
+    id: 'buddy-lv1',
+    name: 'Mambo',
+    characterId: 'mambo',
     kind: 'progression',
     slots: DEFAULT_ANIMATION_SLOTS,
   };
@@ -192,9 +186,11 @@ const BUBBLE_COLORS = [
 
 const PREVIEW_MODE_BADGE_LABELS: Record<ChibiCompanionMode, string> = {
   idle_studying: 'Studying · Focused',
+  idle_reading: 'Reading · Deep Focus',
   hydration: 'Reminder · Drinking water',
   bathroom: 'Reminder · Stretch & Break',
   intervention: 'Status · Nudge Alert',
+  sleeping: 'Status · Sleeping',
   celebrating: 'Great Job · Celebrating!',
 };
 
@@ -208,7 +204,7 @@ const REMINDER_LINKAGE_OPTIONS = [
 ] as const;
 
 export const BuddyStudioView: React.FC = () => {
-  const unlockedProgressionBuddies = COMPANION_LEVEL_ROSTER.filter(
+  const unlockedProgressionBuddies = getDynamicCompanionRoster().filter(
     (item) => item.unlocked
   );
 
@@ -224,7 +220,9 @@ export const BuddyStudioView: React.FC = () => {
   });
 
   const [selectedSlotId, setSelectedSlotId] = useState<string>(
-    () => loadActiveCompanionSelection().slots[0]?.id ?? DEFAULT_ANIMATION_SLOTS[0].id
+    () =>
+      loadActiveCompanionSelection().slots[0]?.id ??
+      DEFAULT_ANIMATION_SLOTS[0].id
   );
   const [previewMode, setPreviewMode] =
     useState<ChibiCompanionMode>('idle_studying');
@@ -233,18 +231,21 @@ export const BuddyStudioView: React.FC = () => {
     "Wohoo good job so far, don't forget to rehydrate!"
   );
 
+  // Stage P4: Delete Animation Slot Confirmation Modal State
+  const [slotToDelete, setSlotToDelete] =
+    useState<BuddyAnimationSlotConfig | null>(null);
+
   // Edit / Add Animation State Slot Modal
   const [isSlotModalOpen, setIsSlotModalOpen] = useState<boolean>(false);
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [slotFormLabel, setSlotFormLabel] = useState<string>('');
-  const [slotFormKey, setSlotFormKey] = useState<string>('Custom');
+  const [slotFormKey, setSlotFormKey] = useState<string>('Idle');
   const [slotFormDesc, setSlotFormDesc] = useState<string>('');
   const [slotFormReminder, setSlotFormReminder] = useState<string>('None');
   const [slotFormUpload, setSlotFormUpload] = useState<
     CustomSlotUpload | undefined
   >(undefined);
 
-  // Custom Figma Dropdown State inside EditSlotModal
   const [isReminderDropdownOpen, setIsReminderDropdownOpen] =
     useState<boolean>(false);
   const reminderDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -264,7 +265,6 @@ export const BuddyStudioView: React.FC = () => {
   const [newModalSlotName, setNewModalSlotName] = useState<string>('');
   const [newModalSlotDesc, setNewModalSlotDesc] = useState<string>('');
 
-  // Listen for external companion updates (e.g., redirected from MarketplaceView)
   useEffect(() => {
     const handleSyncFromMarketplace = () => {
       const latestPresets = loadUserBuddyPresets();
@@ -309,13 +309,21 @@ export const BuddyStudioView: React.FC = () => {
     (b) => b.id === selectedCardId
   );
 
+  const activeCharacterId: CompanionCharacterId =
+    activeUserPreset?.characterId ??
+    inferCharacterIdFromAnyId(
+      activeUserPreset?.id ?? activeProgressionBuddy?.id
+    );
+
+  // Persist active companion selection & broadcast to dock, overlays, and RemindersView
   useEffect(() => {
     const activeSelection: ActiveCompanionSelection = {
       id: selectedCardId,
       name:
         activeUserPreset?.name ||
         activeProgressionBuddy?.name ||
-        'Round Glasses Mambo',
+        'Mambo',
+      characterId: activeCharacterId,
       kind: activeUserPreset ? activeUserPreset.source : 'progression',
       slots,
     };
@@ -325,10 +333,17 @@ export const BuddyStudioView: React.FC = () => {
         ACTIVE_COMPANION_STORAGE_KEY,
         JSON.stringify(activeSelection)
       );
+      window.dispatchEvent(new CustomEvent('study-buddy:companion-updated'));
     } catch {
       // Ignore storage error
     }
-  }, [selectedCardId, slots, activeUserPreset, activeProgressionBuddy]);
+  }, [
+    selectedCardId,
+    slots,
+    activeUserPreset,
+    activeProgressionBuddy,
+    activeCharacterId,
+  ]);
 
   useEffect(() => {
     try {
@@ -357,10 +372,32 @@ export const BuddyStudioView: React.FC = () => {
         ? preset.slots
         : DEFAULT_ANIMATION_SLOTS;
     setSlots(presetSlots);
-    setSelectedSlotId(presetSlots[0].id);
+    setSelectedSlotId(presetSlots[0]?.id ?? '');
     setPreviewMode(preset.defaultMode);
     setBubbleColor(preset.accentBg || '#2B2353');
     playChime('gentle_bell');
+  };
+
+  // Stage P4: Delete animation slot with confirmation & fallback to built-in character animation
+  const handleConfirmDeleteSlot = () => {
+    if (!slotToDelete) return;
+    const nextSlots = slots.filter((s) => s.id !== slotToDelete.id);
+    setSlots(nextSlots);
+
+    if (selectedSlotId === slotToDelete.id) {
+      setSelectedSlotId(nextSlots[0]?.id ?? '');
+      setPreviewMode(nextSlots[0]?.mode ?? 'idle_studying');
+    }
+
+    if (activeUserPreset) {
+      setUserPresets((prev) =>
+        prev.map((p) =>
+          p.id === activeUserPreset.id ? { ...p, slots: nextSlots } : p
+        )
+      );
+    }
+
+    setSlotToDelete(null);
   };
 
   const handleOpenEditSlotModal = (slot: BuddyAnimationSlotConfig) => {
@@ -381,7 +418,7 @@ export const BuddyStudioView: React.FC = () => {
   const handleOpenAddSlotModal = () => {
     setEditingSlotId(null);
     setSlotFormLabel('');
-    setSlotFormKey('Custom');
+    setSlotFormKey('Idle');
     setSlotFormDesc('');
     setSlotFormReminder('None');
     setSlotFormUpload(undefined);
@@ -411,21 +448,28 @@ export const BuddyStudioView: React.FC = () => {
     e.preventDefault();
     if (!slotFormLabel.trim()) return;
 
+    const derivedMode: ChibiCompanionMode =
+      slotFormReminder === 'Drink Water' || slotFormKey === 'Hydration'
+        ? 'hydration'
+        : slotFormReminder === 'App Rules Nudge' || slotFormKey === 'Alert'
+        ? 'intervention'
+        : slotFormReminder.includes('Break') ||
+          slotFormReminder.includes('Stretch') ||
+          slotFormKey === 'Break'
+        ? 'bathroom'
+        : slotFormKey === 'Sleeping'
+        ? 'sleeping'
+        : slotFormKey === 'Success'
+        ? 'celebrating'
+        : 'idle_studying';
+
     const updatedSlot: BuddyAnimationSlotConfig = {
       id: editingSlotId ?? `slot-${Date.now()}`,
       label: slotFormLabel.trim(),
-      slotKey: slotFormKey.trim() || 'Custom',
+      slotKey: slotFormKey.trim() || modeToCanonicalSlotKey(derivedMode),
       description:
         slotFormDesc.trim() || 'Custom animation sequence linked to reminder',
-      mode:
-        slotFormReminder === 'Drink Water'
-          ? 'hydration'
-          : slotFormReminder === 'App Rules Nudge'
-          ? 'intervention'
-          : slotFormReminder.includes('Break') ||
-            slotFormReminder.includes('Stretch')
-          ? 'bathroom'
-          : 'idle_studying',
+      mode: derivedMode,
       reminderTrigger: slotFormReminder,
       uploadedAnimation: slotFormUpload,
     };
@@ -436,6 +480,7 @@ export const BuddyStudioView: React.FC = () => {
 
     setSlots(nextSlots);
     setSelectedSlotId(updatedSlot.id);
+    setPreviewMode(updatedSlot.mode);
 
     if (activeUserPreset) {
       setUserPresets((prev) =>
@@ -482,7 +527,7 @@ export const BuddyStudioView: React.FC = () => {
     const added: BuddyAnimationSlotConfig = {
       id: `modal-custom-${Date.now()}`,
       label: newModalSlotName.trim(),
-      slotKey: newModalSlotName.trim(),
+      slotKey: 'Idle',
       description:
         newModalSlotDesc.trim() || 'Custom user-defined animation state slot',
       mode: 'celebrating',
@@ -500,6 +545,7 @@ export const BuddyStudioView: React.FC = () => {
     const created: UserBuddyPreset = {
       id: `preset-custom-${Date.now()}`,
       name: customBuddyName.trim(),
+      characterId: 'mambo',
       source: 'Custom',
       accentBg: '#2B2353',
       defaultMode: 'idle_studying',
@@ -515,12 +561,7 @@ export const BuddyStudioView: React.FC = () => {
     playChime('break_start');
   };
 
-  const currentlySelectedSlot =
-    slots.find((s) => s.id === selectedSlotId) ?? slots[0];
-  const isCustomBuddyActive = activeUserPreset?.source === 'Custom';
-  const hasUploadedAnimationInCurrentSlot = Boolean(
-    currentlySelectedSlot?.uploadedAnimation?.dataUrl
-  );
+  const currentlySelectedSlot = slots.find((s) => s.id === selectedSlotId);
 
   return (
     <div className="flex flex-col gap-5 p-6 text-white font-sans">
@@ -546,7 +587,6 @@ export const BuddyStudioView: React.FC = () => {
 
       {/* Horizontally Scrollable Companion Roster */}
       <div className="overflow-x-auto flex flex-nowrap py-1 gap-4">
-        {/* 1. Unlocked Progression Buddies */}
         {unlockedProgressionBuddies.map((item) => {
           const isSelected = selectedCardId === item.id;
           const statusCopy =
@@ -583,7 +623,6 @@ export const BuddyStudioView: React.FC = () => {
           );
         })}
 
-        {/* 2. User Presets */}
         {userPresets.map((preset) => {
           const isSelected = selectedCardId === preset.id;
           const isCustom = preset.source === 'Custom';
@@ -609,7 +648,7 @@ export const BuddyStudioView: React.FC = () => {
                   {preset.name}
                 </p>
                 <p className="mt-0.5 text-[11px] font-medium text-[#C4B5FD] whitespace-nowrap">
-                  {preset.slots?.length ?? 4} animation slots
+                  {preset.slots?.length ?? 0} animation slots
                 </p>
               </div>
             </button>
@@ -621,49 +660,18 @@ export const BuddyStudioView: React.FC = () => {
       <div className="grid grid-cols-12 gap-5">
         {/* Left: Live Companion Stage & Speech Bubble Color Selector */}
         <div className="col-span-6 flex flex-col items-center justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-6">
-          {/* Companion Avatar + High-Contrast "Studying · Focused" Status Pill */}
           <div className="flex flex-col items-center">
-            {hasUploadedAnimationInCurrentSlot ? (
-              <div className="relative flex h-[200px] w-[200px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-[#52438F] bg-[#0D0B14] p-3">
-                <img
-                  src={currentlySelectedSlot?.uploadedAnimation?.dataUrl}
-                  alt={currentlySelectedSlot?.label}
-                  className="h-36 w-36 object-contain"
-                />
-              </div>
-            ) : isCustomBuddyActive &&
-              !currentlySelectedSlot?.uploadedAnimation?.fileName ? (
-              <div className="relative flex h-[200px] w-[200px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#52438F] bg-[#0E0B16] p-5 text-center">
-                <svg
-                  width="44"
-                  height="44"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#A594F9"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="4" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-                <p className="mt-2.5 text-[12.5px] font-bold text-white">
-                  {currentlySelectedSlot?.label || 'Empty Animation Slot'}
-                </p>
-                <p className="mt-1 text-[11px] text-[#9490A8]">
-                  Click the edit pencil on this slot to upload a WebM, GIF, or SVG.
-                </p>
-              </div>
-            ) : (
-              <ChibiCompanion
-                mode={previewMode}
-                size="lg"
-                showStateBadge={false}
-              />
-            )}
+            {/* Plays Custom Upload if present on selected slot; otherwise plays Built-In Original Character SVG */}
+            <ChibiCompanion
+              characterId={activeCharacterId}
+              mode={previewMode}
+              size="lg"
+              showStateBadge={false}
+              customUploadOverride={
+                currentlySelectedSlot?.uploadedAnimation ?? null
+              }
+            />
 
-            {/* High-Contrast Status Pill Directly Under Mambo */}
             <div className="mt-3 text-center">
               <span className="inline-block bg-violet-100/90 text-violet-950 border border-violet-300 dark:bg-violet-950/80 dark:text-violet-200 dark:border-violet-700/60 font-semibold px-3 py-1 rounded-full text-xs shadow-sm">
                 {PREVIEW_MODE_BADGE_LABELS[previewMode]}
@@ -671,7 +679,6 @@ export const BuddyStudioView: React.FC = () => {
             </div>
           </div>
 
-          {/* Live Speech Bubble Preview (Crisp White Text on Dark Purple #2B2353 Bubble — WCAG AA > 4.5:1) */}
           <div className="w-full mt-4">
             <div
               className="mx-auto h-0 w-0"
@@ -692,7 +699,6 @@ export const BuddyStudioView: React.FC = () => {
             </div>
           </div>
 
-          {/* Speech Bubble Color Selector */}
           <div className="mt-5 flex w-full items-center justify-between border-t border-[#262038] pt-4">
             <span className="text-[12px] font-medium text-[#C4B5FD]">
               Speech bubble color:
@@ -716,7 +722,7 @@ export const BuddyStudioView: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Animation State Slots */}
+        {/* Right: Animation State Slots with Edit Pencil & Trash2 Delete Button */}
         <div className="col-span-6 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -725,7 +731,7 @@ export const BuddyStudioView: React.FC = () => {
                   Animation State Slots
                 </h3>
                 <p className="mt-0.5 text-[12px] text-[#9490A8]">
-                  Click a slot to preview or click the pencil icon to edit & link to reminders.
+                  Missing or deleted slots automatically fall back to the character&apos;s built-in animation.
                 </p>
               </div>
 
@@ -739,97 +745,117 @@ export const BuddyStudioView: React.FC = () => {
             </div>
 
             <div className="mt-4 flex max-h-[270px] flex-col gap-2.5 overflow-y-auto pr-1">
-              {slots.map((slot) => {
-                const isSelected = selectedSlotId === slot.id;
-                const uploadedName = slot.uploadedAnimation?.fileName;
+              {slots.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[#342C4C] py-8 px-4 text-center text-[12.5px] text-[#9490A8]">
+                  All custom slots removed. Using built-in character animations for every state.
+                </div>
+              ) : (
+                slots.map((slot) => {
+                  const isSelected = selectedSlotId === slot.id;
+                  const uploadedName = slot.uploadedAnimation?.fileName;
 
-                return (
-                  <div
-                    key={slot.id}
-                    onClick={() => {
-                      setSelectedSlotId(slot.id);
-                      setPreviewMode(slot.mode);
-                      playChime('gentle_bell');
-                    }}
-                    className={`flex items-center justify-between rounded-xl border p-3.5 text-left transition-all duration-150 ease-out cursor-pointer ${
-                      isSelected
-                        ? 'border-violet-500 bg-[#2A244D]'
-                        : 'border-[#2C253E] bg-[#141020] hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#3B3256] bg-[#0E0B16] text-[#A594F9]">
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polygon points="5 3 19 12 5 21 5 3" />
-                        </svg>
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-[13.5px] font-bold text-white truncate">
-                            {slot.label}
-                          </p>
-                          <span className="rounded bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 px-2 py-0.5 text-[10px] font-semibold">
-                            {slot.slotKey}
-                          </span>
+                  return (
+                    <div
+                      key={slot.id}
+                      onClick={() => {
+                        setSelectedSlotId(slot.id);
+                        setPreviewMode(slot.mode);
+                        playChime('gentle_bell');
+                      }}
+                      className={`flex items-center justify-between rounded-xl border p-3.5 text-left transition-all duration-150 ease-out cursor-pointer ${
+                        isSelected
+                          ? 'border-violet-500 bg-[#2A244D]'
+                          : 'border-[#2C253E] bg-[#141020] hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-900/40 dark:hover:border-violet-600/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#3B3256] bg-[#0E0B16] text-[#A594F9]">
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polygon points="5 3 19 12 5 21 5 3" />
+                          </svg>
                         </div>
-                        <p className="mt-0.5 text-[11.5px] text-[#9490A8] truncate">
-                          {uploadedName
-                            ? `Animation: ${uploadedName}`
-                            : slot.description}
-                        </p>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-[13.5px] font-bold text-white truncate">
+                              {slot.label}
+                            </p>
+                            <span className="rounded bg-violet-100 text-violet-800 dark:bg-violet-950/60 dark:text-violet-300 px-2 py-0.5 text-[10px] font-semibold">
+                              {slot.slotKey}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[11.5px] text-[#9490A8] truncate">
+                            {uploadedName
+                              ? `Custom file: ${uploadedName}`
+                              : slot.description}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold ${
+                            isSelected
+                              ? 'bg-violet-600 !text-white'
+                              : 'bg-violet-100/80 text-violet-900 dark:bg-[#241E36] dark:text-[#9490A8]'
+                          }`}
+                        >
+                          {isSelected ? 'Playing' : 'Preview'}
+                        </span>
+
+                        {/* Pencil Edit Icon Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditSlotModal(slot);
+                          }}
+                          title={`Edit ${slot.label}`}
+                          aria-label={`Edit ${slot.label}`}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg p-1.5 border border-violet-200 dark:border-[#3B3256] bg-violet-50/70 dark:bg-[#1A1528] text-violet-600 hover:bg-violet-100 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-900/50 dark:hover:text-violet-300 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+                        >
+                          <svg
+                            width="13"
+                            height="13"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                        </button>
+
+                        {/* Stage P4: Trash Button on every animation slot */}
+                        <button
+                          type="button"
+                          aria-label="Delete animation slot"
+                          title={`Delete ${slot.label}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSlotToDelete(slot);
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg p-1.5 border border-violet-200 dark:border-[#3B3256] bg-violet-50/70 dark:bg-[#1A1528] text-violet-600 hover:bg-rose-100 hover:border-rose-300 hover:text-rose-800 dark:text-violet-400 dark:hover:bg-rose-950/60 dark:hover:border-rose-800/50 dark:hover:text-rose-300 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2 shrink-0 ml-2">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold ${
-                          isSelected
-                            ? 'bg-violet-600 !text-white'
-                            : 'bg-violet-100/80 text-violet-900 dark:bg-[#241E36] dark:text-[#9490A8]'
-                        }`}
-                      >
-                        {isSelected ? 'Playing' : 'Preview'}
-                      </span>
-
-                      {/* Pencil Edit Icon Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenEditSlotModal(slot);
-                        }}
-                        title={`Edit ${slot.label}`}
-                        aria-label={`Edit ${slot.label}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg p-1.5 border border-violet-200 dark:border-[#3B3256] bg-violet-50/70 dark:bg-[#1A1528] text-violet-600 hover:bg-violet-100 hover:text-violet-800 dark:text-violet-400 dark:hover:bg-violet-900/50 dark:hover:text-violet-300 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer"
-                      >
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M12 20h9" />
-                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -862,7 +888,7 @@ export const BuddyStudioView: React.FC = () => {
                     : 'Add Animation State Slot'}
                 </h3>
                 <p className="text-[11.5px] text-[#9490A8]">
-                  Configure slot name, animation file, and reminder linkage.
+                  Configure slot name, state key, animation file, and reminder linkage.
                 </p>
               </div>
               <button
@@ -874,18 +900,38 @@ export const BuddyStudioView: React.FC = () => {
               </button>
             </div>
 
-            <div>
-              <label className="block text-[12px] font-semibold text-[#E2DFF0]">
-                Slot Name
-              </label>
-              <input
-                type="text"
-                required
-                value={slotFormLabel}
-                onChange={(e) => setSlotFormLabel(e.target.value)}
-                placeholder="e.g., Eye Rest Blink, Deep Breath Loop..."
-                className="mt-1.5 w-full rounded-xl border border-[#52438F] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-violet-500 focus:outline-none select-text"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[12px] font-semibold text-[#E2DFF0]">
+                  Slot Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={slotFormLabel}
+                  onChange={(e) => setSlotFormLabel(e.target.value)}
+                  placeholder="e.g., Eye Rest Blink"
+                  className="mt-1.5 w-full rounded-xl border border-[#52438F] bg-[#0E0B16] px-3 py-2 text-[13px] text-white placeholder-[#9490A8] focus:border-violet-500 focus:outline-none select-text"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-semibold text-[#E2DFF0]">
+                  State Slot Key
+                </label>
+                <select
+                  value={slotFormKey}
+                  onChange={(e) => setSlotFormKey(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-[#52438F] bg-[#0E0B16] px-3 py-2 text-[12.5px] font-semibold text-white focus:border-violet-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="Idle">Idle (Studying / Reading)</option>
+                  <option value="Hydration">Hydration (Water)</option>
+                  <option value="Break">Break (Bathroom / Stretch)</option>
+                  <option value="Alert">Alert (Nudge)</option>
+                  <option value="Success">Success (Celebration)</option>
+                  <option value="Sleeping">Sleeping (Paused)</option>
+                </select>
+              </div>
             </div>
 
             <div>
@@ -901,7 +947,6 @@ export const BuddyStudioView: React.FC = () => {
               />
             </div>
 
-            {/* Standardized Figma Dropdown Component for Reminder Linkage Trigger */}
             <div className="relative" ref={reminderDropdownRef}>
               <label className="block text-[12px] font-semibold text-[#E2DFF0]">
                 Reminder Linkage Trigger
@@ -949,12 +994,12 @@ export const BuddyStudioView: React.FC = () => {
             <div className="flex items-center justify-between rounded-xl border border-[#2C253E] bg-[#141020] p-3">
               <div className="min-w-0 pr-2">
                 <span className="text-[12px] font-bold text-white">
-                  Animation File (WebM / GIF / SVG)
+                  Animation File (WebM / GIF / SVG / PNG / WebP)
                 </span>
                 <p className="text-[11px] text-[#9490A8] truncate">
                   {slotFormUpload
                     ? `✓ ${slotFormUpload.fileName}`
-                    : 'No custom animation uploaded yet'}
+                    : 'No custom animation uploaded (uses built-in character animation)'}
                 </p>
               </div>
               <label className="shrink-0 rounded-xl bg-violet-600 !text-white px-3.5 py-1.5 text-[11.5px] font-bold hover:bg-violet-700 hover:shadow-md hover:shadow-violet-500/20 active:scale-[0.98] transition-all duration-150 ease-out cursor-pointer">
@@ -1000,7 +1045,7 @@ export const BuddyStudioView: React.FC = () => {
                   Create Custom Buddy
                 </h3>
                 <p className="text-[11.5px] text-[#9490A8]">
-                  Upload animations for default state slots or add custom slots for your reminders.
+                  Upload animations for state slots. Any slot without a file automatically uses Mambo&apos;s built-in animation.
                 </p>
               </div>
               <button
@@ -1040,7 +1085,10 @@ export const BuddyStudioView: React.FC = () => {
                   >
                     <div className="min-w-0 pr-3">
                       <span className="text-[12.5px] font-bold text-white">
-                        {slot.label}
+                        {slot.label}{' '}
+                        <span className="text-[10.5px] font-semibold text-[#C4B5FD]">
+                          ({slot.slotKey})
+                        </span>
                       </span>
                       <p className="text-[11px] text-[#9490A8] truncate">
                         {uploaded?.fileName
@@ -1116,6 +1164,16 @@ export const BuddyStudioView: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Stage P4: Confirmation Modal for Deleting an Animation Slot */}
+      <ConfirmModal
+        isOpen={slotToDelete !== null}
+        title="Delete this animation slot?"
+        description={`"${slotToDelete?.label ?? ''}" will be removed from this buddy. Whenever Study Buddy needs this state, it will automatically fall back to the character's built-in animation.`}
+        confirmLabel="Delete Slot"
+        onConfirm={handleConfirmDeleteSlot}
+        onCancel={() => setSlotToDelete(null)}
+      />
     </div>
   );
 };

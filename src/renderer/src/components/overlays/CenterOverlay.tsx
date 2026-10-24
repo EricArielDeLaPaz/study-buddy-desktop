@@ -5,10 +5,8 @@ import {
   ChibiCompanion,
   ChibiCompanionMode,
 } from '../companion/ChibiCompanion';
+import { loadActiveCompanionSelection } from '../views/BuddyStudioView';
 
-/**
- * Formats seconds into MM:SS (e.g., 300 -> "05:00", 600 -> "10:00").
- */
 function formatTimerMMSS(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds));
   const mins = Math.floor(safeSeconds / 60);
@@ -16,10 +14,6 @@ function formatTimerMMSS(seconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-/**
- * Ensures intervention targets resolve to a single specific application or site name
- * (defaulting to "YouTube" if unspecified).
- */
 function resolveSingleTargetName(rawTarget?: string): string {
   if (!rawTarget || !rawTarget.trim()) {
     return 'YouTube';
@@ -76,8 +70,14 @@ export const CenterOverlay: React.FC = () => {
     return null;
   }
 
-  const { kind, buddyName, message, strictMode } = activeOverlay;
+  const { kind, message, strictMode, targetKind } = activeOverlay;
+  const equippedCompanion = loadActiveCompanionSelection();
+  const displayBuddyName =
+    equippedCompanion?.name || activeOverlay.buddyName || 'Mambo';
+
   const targetApp = resolveSingleTargetName(activeOverlay.targetAppOrSite);
+  const isWebsiteTarget = (targetKind ?? 'website') === 'website';
+  const primaryInterventionVerb = isWebsiteTarget ? 'Minimize' : 'Close';
 
   const isTimedOverlay =
     kind === 'overlay_hydration' || kind === 'overlay_bathroom';
@@ -89,6 +89,13 @@ export const CenterOverlay: React.FC = () => {
     : kind === 'overlay_bathroom'
     ? 'bathroom'
     : 'intervention';
+
+  const reminderTriggerLookup =
+    kind === 'overlay_hydration'
+      ? 'Drink Water'
+      : kind === 'overlay_bathroom'
+      ? 'Bathroom Break'
+      : 'App Rules Nudge';
 
   const handleSelectIncrement = (secondsToAdd: number) => {
     addOverlayTime(secondsToAdd);
@@ -102,7 +109,6 @@ export const CenterOverlay: React.FC = () => {
       aria-modal="true"
       role="dialog"
     >
-      {/* Centered 420px Modal Card */}
       <div
         onMouseEnter={() =>
           setInteractiveRegionHovered('center-overlay', true)
@@ -112,10 +118,14 @@ export const CenterOverlay: React.FC = () => {
         }
         className="relative w-[420px] rounded-[24px] bg-[#221D33] border border-[#342D4B] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.65)] text-white select-none"
       >
-        <ChibiCompanion mode={currentOverlayMode} size="lg" />
+        <ChibiCompanion
+          mode={currentOverlayMode}
+          size="lg"
+          reminderTriggerName={reminderTriggerLookup}
+        />
 
         <h2 className="mt-4 text-center text-[20px] font-bold tracking-tight text-white">
-          {buddyName}
+          {displayBuddyName}
         </h2>
 
         <div className="relative mt-3.5">
@@ -270,7 +280,7 @@ export const CenterOverlay: React.FC = () => {
                 onClick={() => dismissActiveOverlay('close_target')}
                 className="rounded-xl bg-[#A594F9] py-2.5 px-3 text-[12.5px] font-semibold text-[#18132A] shadow-md transition hover:bg-[#B4A5FA] active:scale-[0.99] cursor-pointer truncate"
               >
-                Close {targetApp}
+                {primaryInterventionVerb} {targetApp}
               </button>
             </div>
           )}

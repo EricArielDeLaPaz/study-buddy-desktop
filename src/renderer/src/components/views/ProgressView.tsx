@@ -49,9 +49,6 @@ export interface CompanionRosterUnlock {
   accessory: CompanionAccessoryVariant;
 }
 
-/**
- * Base definitions for starting Mambo + the 4 placeholder Marketplace buddies (Stage 6).
- */
 const BASE_COMPANION_UNLOCK_TRACK: ReadonlyArray<
   Omit<CompanionUnlockDefinition, 'unlocked'>
 > = [
@@ -71,7 +68,7 @@ const BASE_COMPANION_UNLOCK_TRACK: ReadonlyArray<
     levelRequired: 2,
     icon: 'scholar',
     accentBg: '#4C2E85',
-    description: 'Placeholder reward · Warm study desk companion preset',
+    description: 'Barnaby the library owl · Warm study companion preset',
     isPlaceholder: true,
   },
   {
@@ -80,7 +77,7 @@ const BASE_COMPANION_UNLOCK_TRACK: ReadonlyArray<
     levelRequired: 3,
     icon: 'glasses',
     accentBg: '#5B21B6',
-    description: 'Placeholder reward · Calm reading & breathing preset',
+    description: 'Mochi the cloud bunny · Calm reading & breathing preset',
     isPlaceholder: true,
   },
   {
@@ -89,7 +86,7 @@ const BASE_COMPANION_UNLOCK_TRACK: ReadonlyArray<
     levelRequired: 4,
     icon: 'lofi',
     accentBg: '#34245C',
-    description: 'Placeholder reward · Late-night synthwave focus preset',
+    description: 'Byte the cyber-cat · Late-night synthwave focus preset',
     isPlaceholder: true,
   },
   {
@@ -98,7 +95,7 @@ const BASE_COMPANION_UNLOCK_TRACK: ReadonlyArray<
     levelRequired: 5,
     icon: 'exam',
     accentBg: '#3B0764',
-    description: 'Placeholder reward · Minimal 16-bit study preset',
+    description: 'Pip the sprout bot · Minimal 16-bit study preset',
     isPlaceholder: true,
   },
 ];
@@ -135,6 +132,9 @@ export function getDynamicCompanionRoster(): CompanionRosterUnlock[] {
 export const COMPANION_LEVEL_ROSTER: ReadonlyArray<CompanionRosterUnlock> =
   getDynamicCompanionRoster();
 
+/**
+ * Renders distinct mini vector thumbnails for Mambo and each of the 4 original companions.
+ */
 export const CompanionUnlockArtwork: React.FC<{
   icon: CompanionAccessoryVariant;
   unlocked: boolean;
@@ -160,109 +160,76 @@ export const CompanionUnlockArtwork: React.FC<{
         xmlns="http://www.w3.org/2000/svg"
         className={unlocked ? 'opacity-100' : 'opacity-40 grayscale'}
       >
-        <circle
-          cx="18"
-          cy="19"
-          r="11"
-          fill="#FFE4D6"
-          stroke="#241C3D"
-          strokeWidth="1.8"
-        />
-        <path
-          d="M7 17C7 10.5 11.8 7 18 7C24.2 7 29 10.5 29 17C26.5 14.5 23.5 14 21 15.2C19 13.5 17 13.5 15 15.2C12.5 14 9.5 14.5 7 17Z"
-          fill="#3B305E"
-        />
-        <circle cx="14" cy="19.5" r="1.4" fill="#241C3D" />
-        <circle cx="22" cy="19.5" r="1.4" fill="#241C3D" />
-
-        {icon === 'scholar' && (
+        {icon === 'scholar' ? (
+          /* Cozy Library Owl Thumbnail */
           <g>
-            <polygon points="18,3 6,8 18,12 30,8" fill="#2E1065" />
-            <line
-              x1="27"
-              y1="9"
-              x2="28"
-              y2="15"
-              stroke="#FBBF24"
-              strokeWidth="1.6"
-            />
+            <polygon points="10,12 7,6 14,10" fill="#6D4C41" />
+            <polygon points="26,12 29,6 22,10" fill="#6D4C41" />
+            <circle cx="18" cy="20" r="11" fill="#8B5E3C" stroke="#3E2723" strokeWidth="1.6" />
+            <circle cx="14" cy="18" r="4" fill="#FEF3C7" stroke="#F59E0B" strokeWidth="1.3" />
+            <circle cx="22" cy="18" r="4" fill="#FEF3C7" stroke="#F59E0B" strokeWidth="1.3" />
+            <circle cx="14" cy="18" r="1.5" fill="#271713" />
+            <circle cx="22" cy="18" r="1.5" fill="#271713" />
+            <polygon points="18,19 16,22 20,22" fill="#F59E0B" />
           </g>
-        )}
-
-        {icon === 'glasses' && (
+        ) : icon === 'glasses' ? (
+          /* Lavender Focus Cloud Bunny Thumbnail */
+          <g>
+            <ellipse cx="9" cy="20" rx="3" ry="7" fill="#EDE9FE" stroke="#6D28D9" strokeWidth="1.4" />
+            <ellipse cx="27" cy="20" rx="3" ry="7" fill="#EDE9FE" stroke="#6D28D9" strokeWidth="1.4" />
+            <circle cx="18" cy="20" r="10.5" fill="#F5F3FF" stroke="#5B21B6" strokeWidth="1.6" />
+            <circle cx="18" cy="7" r="2.2" fill="#A855F7" />
+            <circle cx="14.5" cy="19.5" r="1.5" fill="#3B0764" />
+            <circle cx="21.5" cy="19.5" r="1.5" fill="#3B0764" />
+            <path d="M16 23Q18 24.8 20 23" stroke="#3B0764" strokeWidth="1.4" strokeLinecap="round" />
+          </g>
+        ) : icon === 'lofi' ? (
+          /* Neon Night Cyber-Cat Thumbnail */
+          <g>
+            <polygon points="9,14 8,6 15,10" fill="#1E1B4B" stroke="#A594F9" strokeWidth="1.3" />
+            <polygon points="27,14 28,6 21,10" fill="#1E1B4B" stroke="#A594F9" strokeWidth="1.3" />
+            <rect x="8" y="10" width="20" height="18" rx="9" fill="#2E1065" stroke="#A594F9" strokeWidth="1.6" />
+            <rect x="10" y="15" width="16" height="6" rx="3" fill="#09070E" stroke="#C4B5FD" strokeWidth="1.2" />
+            <circle cx="14.5" cy="18" r="1.5" fill="#4ADE80" />
+            <circle cx="21.5" cy="18" r="1.5" fill="#4ADE80" />
+          </g>
+        ) : icon === 'exam' ? (
+          /* Retro Arcade CRT Bot Thumbnail */
+          <g>
+            <line x1="18" y1="8" x2="18" y2="4" stroke="#A594F9" strokeWidth="1.8" />
+            <circle cx="20" cy="4" r="2" fill="#4ADE80" />
+            <rect x="8" y="8" width="20" height="22" rx="5" fill="#4C1D95" stroke="#C4B5FD" strokeWidth="1.6" />
+            <rect x="11" y="11" width="14" height="11" rx="2.5" fill="#090D16" />
+            <rect x="13.5" y="14.5" width="2.2" height="3" fill="#4ADE80" />
+            <rect x="20.3" y="14.5" width="2.2" height="3" fill="#4ADE80" />
+          </g>
+        ) : (
+          /* Default Mambo Thumbnail */
           <g>
             <circle
-              cx="14"
-              cy="19.5"
-              r="3.4"
-              stroke="#A594F9"
-              strokeWidth="1.5"
+              cx="18"
+              cy="19"
+              r="11"
+              fill="#FFE4D6"
+              stroke="#241C3D"
+              strokeWidth="1.8"
             />
-            <circle
-              cx="22"
-              cy="19.5"
-              r="3.4"
-              stroke="#A594F9"
-              strokeWidth="1.5"
-            />
-            <line
-              x1="17.4"
-              y1="19.5"
-              x2="18.6"
-              y2="19.5"
-              stroke="#A594F9"
-              strokeWidth="1.5"
-            />
-          </g>
-        )}
-
-        {icon === 'lofi' && (
-          <g>
             <path
-              d="M6.5 19C6.5 11.5 11.5 6.5 18 6.5C24.5 6.5 29.5 11.5 29.5 19"
-              stroke="#A594F9"
-              strokeWidth="2.2"
+              d="M7 17C7 10.5 11.8 7 18 7C24.2 7 29 10.5 29 17C26.5 14.5 23.5 14 21 15.2C19 13.5 17 13.5 15 15.2C12.5 14 9.5 14.5 7 17Z"
+              fill="#3B305E"
+            />
+            <circle cx="14" cy="19.5" r="1.4" fill="#241C3D" />
+            <circle cx="22" cy="19.5" r="1.4" fill="#241C3D" />
+            <circle cx="14" cy="19.5" r="3.4" stroke="#A594F9" strokeWidth="1.4" />
+            <circle cx="22" cy="19.5" r="3.4" stroke="#A594F9" strokeWidth="1.4" />
+            <path
+              d="M15.5 23.5C16.5 24.8 19.5 24.8 20.5 23.5"
+              stroke="#241C3D"
+              strokeWidth="1.6"
               strokeLinecap="round"
             />
-            <rect
-              x="4.5"
-              y="16"
-              width="3.5"
-              height="7"
-              rx="1.7"
-              fill="#A594F9"
-            />
-            <rect
-              x="28"
-              y="16"
-              width="3.5"
-              height="7"
-              rx="1.7"
-              fill="#A594F9"
-            />
           </g>
         )}
-
-        {icon === 'exam' && (
-          <g>
-            <rect
-              x="7.5"
-              y="12.5"
-              width="21"
-              height="3"
-              rx="1.5"
-              fill="#F472B6"
-            />
-            <circle cx="18" cy="14" r="1.5" fill="#FFFFFF" />
-          </g>
-        )}
-
-        <path
-          d="M15.5 23.5C16.5 24.8 19.5 24.8 20.5 23.5"
-          stroke="#241C3D"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
       </svg>
 
       {!unlocked && (
@@ -290,13 +257,10 @@ export const CompanionMiniAvatar: React.FC<{
   />
 );
 
-/**
- * Builds the Mon–Sun bar chart for the current week from real saved history.
- */
 function buildCurrentWeekBars(history: DailyHistoryMap): DailyBar[] {
   const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 (Sun) .. 6 (Sat)
+  const dayOfWeek = now.getDay();
   const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
 
   const monday = new Date(now);
@@ -335,7 +299,6 @@ export const ProgressView: React.FC = () => {
     };
   }, []);
 
-  // Editable Daily Study Goal State
   const [dailyGoalHours, setDailyGoalHours] = useState<number>(() => {
     const saved = loadStorage<number>(STORAGE_KEYS.DAILY_GOAL_HOURS, 4.0);
     return typeof saved === 'number' && saved >= 0.5 && saved <= 16
@@ -369,7 +332,6 @@ export const ProgressView: React.FC = () => {
     setGoalDraft(next.toFixed(1));
   };
 
-  // Compute filtered real metrics
   const filteredMetrics = useMemo(() => {
     const now = new Date();
     const entries = Object.values(history).filter((entry) => {
@@ -427,7 +389,6 @@ export const ProgressView: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-5 p-6 text-white font-sans">
-      {/* Top Header & Time Filter Pills */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
@@ -463,7 +424,6 @@ export const ProgressView: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Real Summary Stat Cards */}
       <div className="grid grid-cols-4 gap-3.5">
         <div className="rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
           <span className="text-[12px] font-medium text-[#9E97B8]">
@@ -516,9 +476,7 @@ export const ProgressView: React.FC = () => {
         </div>
       </div>
 
-      {/* Weekly Bar Chart + Level / XP Companion Unlocks Card */}
       <div className="grid grid-cols-12 gap-5">
-        {/* Mon-Sun Bar Chart with Empty State when there is no history */}
         <div className="col-span-7 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -655,7 +613,6 @@ export const ProgressView: React.FC = () => {
           </div>
         </div>
 
-        {/* Real Level / XP Progress Bar & Stage 6 Placeholder Unlock Track */}
         <div className="col-span-5 flex flex-col justify-between rounded-2xl border border-[#2C253E] bg-[#181424] p-5">
           <div>
             <div className="flex items-center justify-between">
@@ -684,7 +641,6 @@ export const ProgressView: React.FC = () => {
             </p>
           </div>
 
-          {/* Preview of Companion Unlock Track (Stage 6 Placeholders) */}
           <div className="my-4 flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[12px] font-bold text-[#E2DFF0]">
@@ -748,7 +704,6 @@ export const ProgressView: React.FC = () => {
         </div>
       </div>
 
-      {/* Unlockable Companions Overlay Modal */}
       {isUnlocksModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"

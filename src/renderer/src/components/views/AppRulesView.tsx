@@ -80,8 +80,10 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
   const handleTestSingleAppNudge = (rule: AppRuleItem) => {
     const cleanTarget =
       rule.targetName.replace(/\s*\(.*?\)\s*/g, '').trim() || rule.targetName;
+    const resolvedKind = resolveRuleKind(rule);
     triggerOverlay('overlay_intervention', {
       targetAppOrSite: cleanTarget,
+      targetKind: resolvedKind,
       strictMode: rule.strictBlock,
     });
   };
@@ -96,10 +98,10 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display text-[22px] font-bold tracking-tight text-white">
-            App & Website Intervention Rules
+            App & Website Nudge Rules
           </h2>
           <p className="mt-1 text-[13px] text-[#9490A8]">
-            Configure which single apps or websites trigger Mambo&apos;s reminder overlay during active focus.
+            Choose which websites to nudge or minimize and which desktop apps to nudge or close during active focus.
           </p>
         </div>
 
@@ -207,6 +209,9 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
             const cleanPromptName =
               rule.targetName.replace(/\s*\(.*?\)\s*/g, '').trim() ||
               rule.targetName;
+            const strictBadgeLabel = isApp
+              ? 'Strict (Close only)'
+              : 'Strict (Minimize only)';
 
             return (
               <div
@@ -236,13 +241,13 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
                       </span>
                     </div>
                     <p className="mt-0.5 text-[11.5px] text-[#9490A8]">
-                      Overlay prompt: &ldquo;No! Don&apos;t go on {cleanPromptName}&rdquo;
+                      Nudge prompt: &ldquo;No! Don&apos;t go on {cleanPromptName}&rdquo;
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {/* Strict (Close only) vs Default (Strict off) Tag */}
+                  {/* Strict ("Strict (Minimize only)" for websites / "Strict (Close only)" for apps) vs Default */}
                   <button
                     type="button"
                     onClick={() => onToggleRuleStrict(rule.id)}
@@ -253,11 +258,11 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
                     }`}
                   >
                     {rule.strictBlock
-                      ? 'Strict (Close only)'
+                      ? strictBadgeLabel
                       : 'Default (Strict off)'}
                   </button>
 
-                  {/* Instant Single-App Intervention Preview Button */}
+                  {/* Instant Single-Target Nudge Preview Button */}
                   <button
                     type="button"
                     onClick={() => handleTestSingleAppNudge(rule)}
@@ -283,7 +288,7 @@ export const AppRulesView: React.FC<AppRulesViewProps> = ({
                     />
                   </button>
 
-                  {/* Trash Icon Button (Stage 2) */}
+                  {/* Trash Icon Button */}
                   <button
                     type="button"
                     aria-label="Delete rule"

@@ -4,9 +4,6 @@ import {
   getDynamicCompanionRoster,
   CompanionMiniAvatar,
 } from './ProgressView';
-import { AnimationPlaceholder } from '../common/AnimationPlaceholder';
-import { AnimationSlotId } from '../../types/buddy';
-import { ChibiCompanionMode } from '../companion/ChibiCompanion';
 import {
   ACTIVE_COMPANION_STORAGE_KEY,
   ActiveCompanionSelection,
@@ -15,6 +12,14 @@ import {
   USER_BUDDY_PRESETS_STORAGE_KEY,
   UserBuddyPreset,
 } from './BuddyStudioView';
+import {
+  ChibiCompanion,
+  ChibiCompanionMode,
+  CompanionCharacterId,
+  animationSlotIdToMode,
+  modeToCanonicalSlotKey,
+} from '../companion/ChibiCompanion';
+import { AnimationSlotId } from '../../types/buddy';
 import { playChime } from '../../utils/audio';
 
 export interface MarketplaceViewProps {
@@ -25,6 +30,7 @@ type PresetApplyMode = 'create_new' | 'override_current';
 
 interface PlaceholderBuddyPreset {
   id: string;
+  characterId: CompanionCharacterId;
   title: string;
   creator: 'Study Buddy team';
   tagline: string;
@@ -47,10 +53,11 @@ interface PlaceholderBuddyPreset {
 const PLACEHOLDER_MARKETPLACE_BUDDIES: ReadonlyArray<PlaceholderBuddyPreset> = [
   {
     id: 'placeholder-cozy-library',
+    characterId: 'cozy_library',
     title: 'Cozy Library',
     creator: 'Study Buddy team',
     tagline:
-      'Placeholder companion preset with warm desk study loops and teacup hydration reminders.',
+      'Barnaby the library owl with warm study loops, page-scanning reading, and teacup hydration nudges.',
     levelRequired: 2,
     previewMode: 'idle_studying',
     mainSlots: [
@@ -83,23 +90,24 @@ const PLACEHOLDER_MARKETPLACE_BUDDIES: ReadonlyArray<PlaceholderBuddyPreset> = [
       {
         slotId: 'idle_reading',
         label: 'Idle reading',
-        mode: 'idle_studying',
+        mode: 'idle_reading',
         reminderTrigger: 'None',
       },
       {
         slotId: 'status_sleeping',
         label: 'Sleeping',
-        mode: 'bathroom',
+        mode: 'sleeping',
         reminderTrigger: 'None',
       },
     ],
   },
   {
     id: 'placeholder-neon-night',
+    characterId: 'neon_night',
     title: 'Neon Night',
     creator: 'Study Buddy team',
     tagline:
-      'Placeholder companion preset styled for evening coding sessions and high-contrast nudges.',
+      'Byte the synthwave cyber-cat with glowing LED visor expressions for late-night focus sprints.',
     levelRequired: 4,
     previewMode: 'celebrating',
     mainSlots: [
@@ -132,23 +140,24 @@ const PLACEHOLDER_MARKETPLACE_BUDDIES: ReadonlyArray<PlaceholderBuddyPreset> = [
       {
         slotId: 'idle_reading',
         label: 'Idle reading',
-        mode: 'idle_studying',
+        mode: 'idle_reading',
         reminderTrigger: 'None',
       },
       {
         slotId: 'status_sleeping',
         label: 'Sleeping',
-        mode: 'bathroom',
+        mode: 'sleeping',
         reminderTrigger: 'None',
       },
     ],
   },
   {
     id: 'placeholder-lavender-focus',
+    characterId: 'lavender_focus',
     title: 'Lavender Focus',
     creator: 'Study Buddy team',
     tagline:
-      'Placeholder companion preset with soft lavender tones for low-eye-strain reading blocks.',
+      'Mochi the pastel cloud bunny with soothing lavender sprig animations for calm reading blocks.',
     levelRequired: 3,
     previewMode: 'hydration',
     mainSlots: [
@@ -181,23 +190,24 @@ const PLACEHOLDER_MARKETPLACE_BUDDIES: ReadonlyArray<PlaceholderBuddyPreset> = [
       {
         slotId: 'idle_reading',
         label: 'Idle reading',
-        mode: 'idle_studying',
+        mode: 'idle_reading',
         reminderTrigger: 'None',
       },
       {
         slotId: 'status_sleeping',
         label: 'Sleeping',
-        mode: 'bathroom',
+        mode: 'sleeping',
         reminderTrigger: 'None',
       },
     ],
   },
   {
     id: 'placeholder-retro-arcade',
+    characterId: 'retro_arcade',
     title: 'Retro Arcade',
     creator: 'Study Buddy team',
     tagline:
-      'Placeholder companion preset featuring minimal status badges and classic break cues.',
+      'Pip the 16-bit pocket sprout bot with expressive CRT screen animations and classic break cues.',
     levelRequired: 5,
     previewMode: 'bathroom',
     mainSlots: [
@@ -230,13 +240,13 @@ const PLACEHOLDER_MARKETPLACE_BUDDIES: ReadonlyArray<PlaceholderBuddyPreset> = [
       {
         slotId: 'idle_reading',
         label: 'Idle reading',
-        mode: 'idle_studying',
+        mode: 'idle_reading',
         reminderTrigger: 'None',
       },
       {
         slotId: 'status_sleeping',
         label: 'Sleeping',
-        mode: 'bathroom',
+        mode: 'sleeping',
         reminderTrigger: 'None',
       },
     ],
@@ -285,8 +295,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   };
 
   /**
-   * Equips the selected placeholder buddy locally (including all 4 Main + 2 Extra animation slots)
-   * and navigates to Buddy Studio.
+   * Equips the selected placeholder companion character locally (saving its characterId
+   * so the Companion dock and all overlays immediately render that character).
    */
   const handleEquipPlaceholderBuddy = () => {
     playChime('break_start');
@@ -295,16 +305,16 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       ...activePreset.mainSlots.map((s) => ({
         id: `${activePreset.id}-${s.slotId}`,
         label: s.label,
-        slotKey: s.slotId,
-        description: `Main animation placeholder (${s.slotId})`,
+        slotKey: modeToCanonicalSlotKey(s.mode),
+        description: `${activePreset.title} · ${s.label}`,
         mode: s.mode,
         reminderTrigger: s.reminderTrigger,
       })),
       ...activePreset.extraSlots.map((s) => ({
         id: `${activePreset.id}-${s.slotId}`,
         label: s.label,
-        slotKey: s.slotId,
-        description: `Extra animation placeholder (${s.slotId})`,
+        slotKey: modeToCanonicalSlotKey(s.mode),
+        description: `${activePreset.title} · ${s.label}`,
         mode: s.mode,
         reminderTrigger: s.reminderTrigger,
       })),
@@ -315,10 +325,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
     if (applyMode === 'create_new') {
       equippedBuddy = {
-        id: `preset-mkt-${Date.now()}`,
+        id: `preset-mkt-${activePreset.characterId}-${Date.now()}`,
         name: newPresetCustomName.trim() || activePreset.title,
+        characterId: activePreset.characterId,
         source: 'Marketplace',
-        accentBg: '#3C3173',
+        accentBg: '#2B2353',
         defaultMode: activePreset.previewMode,
         slots: allSixSlots,
       };
@@ -330,11 +341,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
       equippedBuddy = {
         ...(existingTarget ?? {
-          id: `preset-mkt-${Date.now()}`,
+          id: `preset-mkt-${activePreset.characterId}-${Date.now()}`,
           source: 'Marketplace' as const,
-          accentBg: '#3C3173',
+          accentBg: '#2B2353',
         }),
         name: existingTarget ? existingTarget.name : activePreset.title,
+        characterId: activePreset.characterId,
         defaultMode: activePreset.previewMode,
         slots: allSixSlots,
       };
@@ -349,6 +361,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     const activeSelectionPayload: ActiveCompanionSelection = {
       id: equippedBuddy.id,
       name: equippedBuddy.name,
+      characterId: activePreset.characterId,
       kind: equippedBuddy.source,
       slots: allSixSlots,
     };
@@ -376,6 +389,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     }
   };
 
+  const detailPreviewMode = animationSlotIdToMode(selectedPreviewSlot);
+
   return (
     <div className="relative flex h-full flex-col gap-5 p-6 text-white font-sans">
       {/* Top Header with Disabled "Coming soon" Publish Button */}
@@ -385,7 +400,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             Companion Marketplace (Placeholders)
           </h2>
           <p className="mt-1 text-[13px] text-[#9490A8]">
-            Browse the 4 placeholder companion presets from the Study Buddy team and equip them locally.
+            Browse the 4 original placeholder companions from the Study Buddy team and equip them locally.
           </p>
         </div>
 
@@ -401,7 +416,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
       {/* Three-Column Marketplace Grid */}
       <div className="grid flex-1 grid-cols-12 gap-4 min-h-0">
-        {/* LEFT PANEL: Earned / Unlock Path Buddies */}
+        {/* LEFT PANEL: Unlock Path Buddies */}
         <div className="col-span-3 flex flex-col rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
             <h3 className="text-[14px] font-bold text-white">
@@ -457,7 +472,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           </div>
         </div>
 
-        {/* CENTER PANEL: Exactly 4 Labeled Placeholder Buddies */}
+        {/* CENTER PANEL: 4 Original Animated Placeholder Companions */}
         <div className="col-span-5 flex flex-col rounded-2xl border border-[#2C253E] bg-[#181424] p-4">
           <div className="flex items-center justify-between border-b border-[#262038] pb-3">
             <span className="text-[13px] font-bold text-white">
@@ -493,9 +508,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     </div>
 
                     <div className="my-2.5 flex justify-center">
-                      <AnimationPlaceholder
-                        slot={preset.mainSlots[0].slotId}
-                        size={112}
+                      <ChibiCompanion
+                        characterId={preset.characterId}
+                        mode={preset.previewMode}
+                        size="sm"
+                        showStateBadge={false}
+                        disableGlobalEquipLookup
                       />
                     </div>
 
@@ -515,7 +533,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           </div>
         </div>
 
-        {/* RIGHT PANEL: Placeholder Details & Main + Extra Animation Placeholders */}
+        {/* RIGHT PANEL: Real Animated Character Preview Across All 6 Modes */}
         <div className="col-span-4 flex flex-col justify-between rounded-2xl border border-[#4E4187] bg-[#181424] p-4 overflow-y-auto">
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between border-b border-[#262038] pb-2.5">
@@ -534,9 +552,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               </div>
             </div>
 
-            {/* Live Selected AnimationPlaceholder Preview */}
+            {/* Live Animated Character Playing Selected Mode */}
             <div className="flex justify-center py-1">
-              <AnimationPlaceholder slot={selectedPreviewSlot} size={140} />
+              <ChibiCompanion
+                characterId={activePreset.characterId}
+                mode={detailPreviewMode}
+                size="md"
+                showStateBadge={false}
+                disableGlobalEquipLookup
+              />
             </div>
 
             {/* Main Animations (4) */}

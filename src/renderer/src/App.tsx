@@ -169,6 +169,8 @@ const StudyBuddyViewport: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<NavTabId>('session');
   const [isDashboardVisible, setIsDashboardVisible] = useState<boolean>(true);
+  const [isDashboardFullScreen, setIsDashboardFullScreen] =
+    useState<boolean>(false);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
 
   const [appRules, setAppRules] = useState<AppRuleItem[]>(() =>
@@ -208,6 +210,8 @@ const StudyBuddyViewport: React.FC = () => {
     };
   });
 
+  const preFullScreenRectRef = useRef<WindowRect>(desktopRect);
+
   const [notepadRect, setNotepadRect] = useState<WindowRect>(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
@@ -240,8 +244,34 @@ const StudyBuddyViewport: React.FC = () => {
     [setInteractiveRegionHovered, syncWindowClickThrough]
   );
 
+  // Stage P2: Toggle Dashboard between filling the screen's usable area and its previous rect
+  const handleToggleDashboardFullScreen = useCallback(() => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+
+    if (!isDashboardFullScreen) {
+      preFullScreenRectRef.current = desktopRectRef.current;
+      setDesktopRect({
+        x: 0,
+        y: 0,
+        width: vw,
+        height: vh,
+      });
+      setIsDashboardFullScreen(true);
+    } else {
+      setDesktopRect(clampRectToViewport(preFullScreenRectRef.current));
+      setIsDashboardFullScreen(false);
+    }
+  }, [isDashboardFullScreen]);
+
   useEffect(() => {
-    if (!isDashboardVisible || !isScratchpadOpen) return;
+    if (
+      !isDashboardVisible ||
+      !isScratchpadOpen ||
+      isDashboardFullScreen
+    ) {
+      return;
+    }
     const currentDesktop = desktopRectRef.current;
     const currentNotepad = {
       ...notepadRectRef.current,
@@ -266,7 +296,12 @@ const StudyBuddyViewport: React.FC = () => {
       setDesktopRect(nextDesktop);
       setNotepadRect(nextNotepad);
     }
-  }, [isDashboardVisible, isScratchpadOpen, isScratchpadMinimized]);
+  }, [
+    isDashboardVisible,
+    isScratchpadOpen,
+    isScratchpadMinimized,
+    isDashboardFullScreen,
+  ]);
 
   useEffect(() => {
     const handleNavigateEvent = (e: Event) => {
@@ -285,6 +320,9 @@ const StudyBuddyViewport: React.FC = () => {
 
   const updateDesktopRectWithCollision = useCallback(
     (candidate: WindowRect, interaction: 'drag' | 'resize') => {
+      if (isDashboardFullScreen) {
+        setIsDashboardFullScreen(false);
+      }
       const clampedCandidate = clampRectToViewport(candidate);
       if (!isScratchpadOpen) {
         setDesktopRect(clampedCandidate);
@@ -308,13 +346,13 @@ const StudyBuddyViewport: React.FC = () => {
       );
       setDesktopRect(resolvedDesktop);
     },
-    [isScratchpadOpen, isScratchpadMinimized]
+    [isScratchpadOpen, isScratchpadMinimized, isDashboardFullScreen]
   );
 
   const updateNotepadRectWithCollision = useCallback(
     (candidate: WindowRect, interaction: 'drag' | 'resize') => {
       const clampedCandidate = clampRectToViewport(candidate);
-      if (!isDashboardVisible) {
+      if (!isDashboardVisible || isDashboardFullScreen) {
         setNotepadRect(clampedCandidate);
         return;
       }
@@ -345,13 +383,14 @@ const StudyBuddyViewport: React.FC = () => {
           : resolvedEffective.height,
       });
     },
-    [isDashboardVisible, isScratchpadMinimized]
+    [isDashboardVisible, isScratchpadMinimized, isDashboardFullScreen]
   );
 
   const handleDesktopHeaderMouseDown = (
     e: React.MouseEvent<HTMLDivElement>
   ) => {
     if (
+      isDashboardFullScreen ||
       (e.target as HTMLElement).closest(
         'button, input, select, a, [data-no-drag="true"]'
       )
@@ -473,6 +512,7 @@ const StudyBuddyViewport: React.FC = () => {
         } else if (type === 'intervention') {
           activateOverlayImmediately('overlay_intervention', {
             targetAppOrSite: payload?.targetAppOrSite ?? 'YouTube',
+            targetKind: payload?.targetKind ?? 'website',
             strictMode: payload?.strictMode ?? false,
             message: payload?.message,
           });
@@ -540,16 +580,20 @@ const StudyBuddyViewport: React.FC = () => {
             width: `${desktopRect.width}px`,
             height: `${desktopRect.height}px`,
           }}
-          className="fixed pointer-events-auto flex flex-col overflow-hidden rounded-[24px] border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)]"
+          className={`fixed pointer-events-auto flex flex-col overflow-hidden border border-[#322A4B] bg-[#141020] shadow-[0_32px_90px_rgba(0,0,0,0.85)] ${
+            isDashboardFullScreen ? 'rounded-none' : 'rounded-[24px]'
+          }`}
         >
           <div
             onMouseDown={handleDesktopHeaderMouseDown}
-            className="cursor-move"
+            className={isDashboardFullScreen ? 'cursor-default' : 'cursor-move'}
           >
             <Header
               isScratchpadOpen={isScratchpadOpen}
               onToggleScratchpad={() => setScratchpadOpen(!isScratchpadOpen)}
               onMinimizeToCompanion={() => setIsDashboardVisible(false)}
+              isFullScreen={isDashboardFullScreen}
+              onToggleFullScreen={handleToggleDashboardFullScreen}
               activeTabLabel={TAB_LABELS[activeTab]}
             />
           </div>
@@ -581,28 +625,32 @@ const StudyBuddyViewport: React.FC = () => {
             </main>
           </div>
 
-          <div
-            onMouseDown={(e) => handleStartDesktopResize(e, 'right')}
-            className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
-          />
-          <div
-            onMouseDown={(e) => handleStartDesktopResize(e, 'bottom')}
-            className="absolute bottom-0 left-4 right-4 h-1.5 cursor-ns-resize"
-          />
-          <div
-            onMouseDown={(e) => handleStartDesktopResize(e, 'corner')}
-            title="Drag to resize Study Buddy window"
-            className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#9490A8] hover:text-[#A594F9]"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path
-                d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
+          {!isDashboardFullScreen && (
+            <>
+              <div
+                onMouseDown={(e) => handleStartDesktopResize(e, 'right')}
+                className="absolute top-12 right-0 bottom-4 w-1.5 cursor-ew-resize"
               />
-            </svg>
-          </div>
+              <div
+                onMouseDown={(e) => handleStartDesktopResize(e, 'bottom')}
+                className="absolute bottom-0 left-4 right-4 h-1.5 cursor-ns-resize"
+              />
+              <div
+                onMouseDown={(e) => handleStartDesktopResize(e, 'corner')}
+                title="Drag to resize Study Buddy window"
+                className="absolute bottom-1 right-1 z-30 flex h-4 w-4 cursor-nwse-resize items-end justify-end p-0.5 text-[#9490A8] hover:text-[#A594F9]"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path
+                    d="M9 1L1 9M9 5L5 9M9 8.5L8.5 9"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -741,6 +789,7 @@ const StudyBuddyViewport: React.FC = () => {
                 onClick={() =>
                   activateOverlayImmediately('overlay_intervention', {
                     targetAppOrSite: 'YouTube',
+                    targetKind: 'website',
                     strictMode: false,
                   })
                 }
@@ -754,6 +803,7 @@ const StudyBuddyViewport: React.FC = () => {
                 onClick={() =>
                   activateOverlayImmediately('overlay_intervention', {
                     targetAppOrSite: 'YouTube',
+                    targetKind: 'website',
                     strictMode: true,
                   })
                 }
@@ -774,9 +824,7 @@ const StudyBuddyViewport: React.FC = () => {
                     ? 'bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 cursor-pointer'
                     : 'bg-zinc-800/40 text-zinc-500 cursor-not-allowed'
                 }`}
-              >
-                Dismiss
-              </button>
+              />
             </>
           )}
         </div>
