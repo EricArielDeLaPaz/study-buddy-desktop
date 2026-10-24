@@ -5,9 +5,11 @@ copyright: Copyright © 2026 Eric Ariel De La Paz
 
 directories:
   output: dist
-  buildResources: build
+  buildResources: resources
 
 asar: true
+asarUnpack:
+  - "node_modules/get-windows/**/*"
 
 files:
   - "out/**/*"
@@ -20,7 +22,7 @@ files:
   - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml,package-lock.json}"
 
-# Windows Configuration
+# Windows Configuration (expects resources/icon.ico if custom icon is used)
 win:
   executableName: Study-Buddy
   target:
@@ -36,7 +38,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 
-# macOS Configuration
+# macOS Configuration (expects resources/icon.icns if custom icon is used)
 mac:
   category: public.app-category.productivity
   hardenedRuntime: true
@@ -50,10 +52,10 @@ mac:
 dmg:
   artifactName: "${productName}-${version}-${arch}.${ext}"
 
-# Linux Configuration
+# Linux Configuration (expects resources/icon.png 512x512)
 linux:
   category: Utility
-  synopsis: Interactive desktop focus companion, reminders, and study scratchpad.
+  synopsis: Interactive desktop focus companion, reminders, and study notepad.
   target:
     - target: AppImage
       arch:

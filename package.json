@@ -1,10 +1,10 @@
 {
   "name": "study-buddy-desktop",
-  "version": "1.0.0",
-  "description": "Study Buddy Desktop Companion with Mambo overlays and Markdown scratchpad",
+  "version": "3.3.0",
+  "description": "Study Buddy Desktop Companion with Mambo overlays and Markdown notepad",
   "main": "./out/main/index.js",
   "author": "Eric Ariel De La Paz",
-  "homepage": "https://github.com/ericarieldelapaz/study-buddy-desktop",
+  "homepage": "https://github.com/EricArielDeLaPaz/study-buddy-desktop",
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "get-windows": "^9.2.0",
     "lucide-react": "^0.454.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -23,7 +24,7 @@
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@Electron-toolkit/utils": "^3.0.0",
+    "@electron-toolkit/utils": "^4.0.0",
     "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",

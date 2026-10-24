@@ -16,21 +16,20 @@ export interface ExportMarkdownResult {
   error?: string;
 }
 
+export interface WatcherAppRule {
+  id: string;
+  kind?: 'website' | 'app';
+  targetName: string;
+  domainOrProcess: string;
+  strictBlock: boolean;
+  enabled: boolean;
+}
+
 export const electronAPI = {
-  /**
-   * Toggles OS-level window mouse click-through.
-   * - When `ignore` is true and `forward` is true, clicks pass through to underlying
-   *   applications while mousemove events continue forwarding to the renderer.
-   * - When `ignore` is false, the Electron window captures all mouse interactions.
-   */
   setIgnoreMouseEvents: (ignore: boolean, forward?: boolean): void => {
     ipcRenderer.send('buddy:set-ignore-mouse-events', ignore, forward ?? false);
   },
 
-  /**
-   * Sends Markdown note content to the main process to open a native OS Save dialog
-   * and write the `.md` file to disk.
-   */
   exportMarkdown: (
     content: string,
     filename: string
@@ -38,10 +37,6 @@ export const electronAPI = {
     return ipcRenderer.invoke('buddy:export-markdown', { content, filename });
   },
 
-  /**
-   * Subscribes to scheduled or system-initiated overlay triggers from the main process.
-   * Returns an unsubscribe cleanup function for React `useEffect` hooks.
-   */
   onTriggerOverlay: (
     callback: (
       type: OverlayTriggerType,
@@ -61,6 +56,25 @@ export const electronAPI = {
       ipcRenderer.removeListener('buddy:trigger-overlay', listener);
     };
   },
+
+  /**
+   * Stage 8: Syncs whether a focus session is currently running and the user's
+   * active App Rules list to the main process foreground window watcher.
+   */
+  syncWatcherState: (payload: {
+    isFocusing: boolean;
+    rules: WatcherAppRule[];
+  }): void => {
+    ipcRenderer.send('buddy:sync-watcher-state', payload);
+  },
+
+  /**
+   * Stage 8: Politely asks the target desktop app window to close (no force-kill)
+   * or minimizes the browser window if the target is a website.
+   */
+  closeOrMinimizeTarget: (targetName: string): Promise<{ ok: boolean }> => {
+    return ipcRenderer.invoke('buddy:close-or-minimize-target', { targetName });
+  },
 };
 
 if (process.contextIsolated) {
@@ -70,7 +84,6 @@ if (process.contextIsolated) {
     console.error('Failed to expose electronAPI via contextBridge:', error);
   }
 } else {
-  // Fallback if contextIsolation is disabled in custom environments
   (window as unknown as { electronAPI: typeof electronAPI }).electronAPI =
     electronAPI;
 }

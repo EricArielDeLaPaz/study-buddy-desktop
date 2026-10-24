@@ -15,34 +15,32 @@ export interface ExportMarkdownResult {
   error?: string;
 }
 
-export interface ElectronAPI {
-  /**
-   * Enables or disables window click-through in the main process.
-   * @param ignore Whether mouse events should pass through the transparent window.
-   * @param forward Whether mouse move events should still be forwarded to the renderer.
-   */
-  setIgnoreMouseEvents: (ignore: boolean, forward?: boolean) => void;
+export interface WatcherAppRule {
+  id: string;
+  kind?: 'website' | 'app';
+  targetName: string;
+  domainOrProcess: string;
+  strictBlock: boolean;
+  enabled: boolean;
+}
 
-  /**
-   * Opens the native system save dialog to save Scratchpad notes as a `.md` file.
-   * @param content Plain text / Markdown string buffer.
-   * @param filename Suggested file name (e.g. `cell-respiration.md`).
-   */
+export interface ElectronAPI {
+  setIgnoreMouseEvents: (ignore: boolean, forward?: boolean) => void;
   exportMarkdown: (
     content: string,
     filename: string
   ) => Promise<ExportMarkdownResult>;
-
-  /**
-   * Registers a callback for main-process overlay triggers.
-   * Returns a cleanup function that removes the IPC listener.
-   */
   onTriggerOverlay: (
     callback: (
       type: OverlayTriggerType,
       payload?: OverlayTriggerPayload
     ) => void
   ) => () => void;
+  syncWatcherState: (payload: {
+    isFocusing: boolean;
+    rules: WatcherAppRule[];
+  }) => void;
+  closeOrMinimizeTarget: (targetName: string) => Promise<{ ok: boolean }>;
 }
 
 declare global {
@@ -50,3 +48,4 @@ declare global {
     electronAPI: ElectronAPI;
   }
 }
+

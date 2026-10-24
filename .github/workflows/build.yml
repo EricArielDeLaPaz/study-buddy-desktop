@@ -1,4 +1,7 @@
 # .github/workflows/build.yml
+# To cut and publish a new release:
+#   npm version minor
+#   git push --follow-tags
 name: Build and Release Study Buddy
 
 on:
@@ -44,7 +47,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-           CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npx electron-builder --publish always
 
       - name: Package Artifacts Without Publishing (Manual Workflow Dispatch)
