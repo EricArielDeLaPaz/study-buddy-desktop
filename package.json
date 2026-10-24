@@ -1,6 +1,6 @@
 {
   "name": "study-buddy-desktop",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "description": "Study Buddy Desktop Companion with Mambo overlays and Markdown notepad",
   "main": "./out/main/index.js",
   "author": "Eric Ariel De La Paz",
