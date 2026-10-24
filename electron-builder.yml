@@ -8,8 +8,6 @@ directories:
   buildResources: resources
 
 asar: true
-asarUnpack:
-  - "node_modules/get-windows/**/*"
 
 files:
   - "out/**/*"
