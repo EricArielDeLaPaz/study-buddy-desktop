@@ -23,8 +23,28 @@ export interface WatcherAppRule {
   kind?: 'website' | 'app';
   targetName: string;
   domainOrProcess: string;
+  processName?: string;
+  bundleId?: string;
   strictBlock: boolean;
   enabled: boolean;
+}
+
+export interface InspectedAppTarget {
+  canceled?: boolean;
+  filePath: string;
+  displayName: string;
+  processName: string;
+  bundleId?: string;
+  isLauncherWarning?: boolean;
+  warningMessage?: string;
+}
+
+export interface RunningOpenAppItem {
+  pid: number;
+  processName: string;
+  rawProcessName: string;
+  bundleId?: string;
+  windowTitle: string;
 }
 
 export interface ElectronAPI {
@@ -47,6 +67,11 @@ export interface ElectronAPI {
   notifyInterventionState: (active: boolean) => void;
   closeOrMinimizeTarget: (targetName: string) => Promise<{ ok: boolean }>;
   quitApp: () => void;
+  getPathForFile: (file: File) => string;
+  inspectAppPath: (filePath: string) => Promise<InspectedAppTarget>;
+  browseDesktopApp: () => Promise<InspectedAppTarget>;
+  listOpenApps: () => Promise<RunningOpenAppItem[]>;
+  captureForegroundApp: () => Promise<RunningOpenAppItem | null>;
 }
 
 declare global {

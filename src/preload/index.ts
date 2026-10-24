@@ -1,5 +1,5 @@
 // src/preload/index.ts
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron';
 
 export type OverlayTriggerType = 'hydration' | 'bathroom' | 'intervention';
 
@@ -24,8 +24,28 @@ export interface WatcherAppRule {
   kind?: 'website' | 'app';
   targetName: string;
   domainOrProcess: string;
+  processName?: string;
+  bundleId?: string;
   strictBlock: boolean;
   enabled: boolean;
+}
+
+export interface InspectedAppTarget {
+  canceled?: boolean;
+  filePath: string;
+  displayName: string;
+  processName: string;
+  bundleId?: string;
+  isLauncherWarning?: boolean;
+  warningMessage?: string;
+}
+
+export interface RunningOpenAppItem {
+  pid: number;
+  processName: string;
+  rawProcessName: string;
+  bundleId?: string;
+  windowTitle: string;
 }
 
 export const electronAPI = {
@@ -79,6 +99,45 @@ export const electronAPI = {
 
   quitApp: (): void => {
     ipcRenderer.send('buddy:quit-app');
+  },
+
+  /**
+   * Stage P7: Resolves the real filesystem path for a File object selected via input or drag-and-drop.
+   */
+  getPathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file) || '';
+    } catch {
+      return '';
+    }
+  },
+
+  /**
+   * Stage P7: Inspects an executable, .lnk shortcut, or macOS .app bundle path in the main process.
+   */
+  inspectAppPath: (filePath: string): Promise<InspectedAppTarget> => {
+    return ipcRenderer.invoke('buddy:inspect-app-path', { filePath });
+  },
+
+  /**
+   * Stage P7: Opens a native file/app picker dialog (supporting .app bundles on macOS and .exe/.lnk on Windows).
+   */
+  browseDesktopApp: (): Promise<InspectedAppTarget> => {
+    return ipcRenderer.invoke('buddy:browse-desktop-app');
+  },
+
+  /**
+   * Stage P7: Lists currently running desktop apps with a visible window (in memory only).
+   */
+  listOpenApps: (): Promise<RunningOpenAppItem[]> => {
+    return ipcRenderer.invoke('buddy:list-open-apps');
+  },
+
+  /**
+   * Stage P7: Reads the current foreground application so the user can add the app they just switched to.
+   */
+  captureForegroundApp: (): Promise<RunningOpenAppItem | null> => {
+    return ipcRenderer.invoke('buddy:capture-foreground-app');
   },
 };
 

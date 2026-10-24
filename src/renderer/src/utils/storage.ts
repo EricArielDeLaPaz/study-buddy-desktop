@@ -91,9 +91,6 @@ export function recordDailyProgressDelta(delta: {
   return nextHistory;
 }
 
-/**
- * Computes consecutive days with at least 1 completed session or > 0 focus minutes.
- */
 export function calculateStreakDays(history: DailyHistoryMap): number {
   let streak = 0;
   const cursor = new Date();
@@ -105,7 +102,6 @@ export function calculateStreakDays(history: DailyHistoryMap): number {
     (todayEntry.sessionsCompleted > 0 || todayEntry.focusMinutes > 0);
 
   if (!hasActivityToday) {
-    // Check if yesterday had activity so an active streak isn't zeroed before today's first session
     cursor.setDate(cursor.getDate() - 1);
   }
 
@@ -123,12 +119,6 @@ export function calculateStreakDays(history: DailyHistoryMap): number {
   return streak;
 }
 
-/**
- * Formula for Level & XP from real total focus minutes and completed sessions:
- * - 10 XP per focused minute
- * - 25 XP bonus per completed session/break
- * - 500 XP per level (Level 1 = 0..499 XP, Level 2 = 500..999 XP, etc.)
- */
 export function calculateLevelAndXP(history: DailyHistoryMap): {
   level: number;
   currentLevelXP: number;
@@ -161,10 +151,6 @@ export function calculateLevelAndXP(history: DailyHistoryMap): {
   };
 }
 
-/**
- * Clears ONLY progress, schedule, reminders, and app rules keys.
- * Preserves Notepad notes, theme preference, and Tester account.
- */
 export function resetStudyBuddyUserData(): void {
   if (typeof window === 'undefined') return;
   const keysToClear = [
@@ -187,10 +173,6 @@ export function resetStudyBuddyUserData(): void {
   window.dispatchEvent(new CustomEvent('study-buddy:data-updated'));
 }
 
-/**
- * Dev-only helper ("Load demo data") visible only under `npm run dev`
- * so the designer can populate sample data for screenshots.
- */
 export function loadDemoDataForDev(): void {
   const now = new Date();
   const demoHistory: DailyHistoryMap = {};
@@ -203,7 +185,7 @@ export function loadDemoDataForDev(): void {
     const hrs = sampleHours[i % sampleHours.length];
     const mins = Math.round(hrs * 60);
     demoHistory[key] = {
-      date: key,
+      date: todayOrOffset(d),
       focusMinutes: mins,
       sessionsCompleted: Math.max(1, Math.round(hrs * 2)),
       hydrationCount: Math.max(1, Math.round(hrs * 2)),
@@ -271,6 +253,7 @@ export function loadDemoDataForDev(): void {
       kind: 'app',
       targetName: 'Discord',
       domainOrProcess: 'Discord.exe',
+      processName: 'discord',
       category: 'Chat',
       strictBlock: true,
       enabled: true,
@@ -279,4 +262,8 @@ export function loadDemoDataForDev(): void {
 
   window.dispatchEvent(new CustomEvent('study-buddy:data-reset'));
   window.dispatchEvent(new CustomEvent('study-buddy:data-updated'));
+}
+
+function todayOrOffset(d: Date): string {
+  return getLocalDateKey(d);
 }

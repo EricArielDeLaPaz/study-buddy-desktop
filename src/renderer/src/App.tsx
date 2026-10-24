@@ -13,6 +13,7 @@ import { ScheduleView } from './components/views/ScheduleView';
 import {
   AppRulesView,
   AppRuleItem,
+  resolveRuleKind,
 } from './components/views/AppRulesView';
 import { ProgressView } from './components/views/ProgressView';
 import { BuddyStudioView } from './components/views/BuddyStudioView';
@@ -28,6 +29,7 @@ import {
   saveStorage,
   STORAGE_KEYS,
 } from './utils/storage';
+import { normalizeAppTarget } from './utils/appTarget';
 import type {
   OverlayTriggerType,
   OverlayTriggerPayload,
@@ -49,6 +51,27 @@ const TAB_LABELS: Record<NavTabId, string> = {
 
 const VIEWPORT_PADDING = 12;
 const COLLISION_GAP = 12;
+
+/**
+ * Stage P7: Ensures any previously saved desktop app rules have `processName` computed
+ * via `normalizeAppTarget` on load so no existing rule is lost.
+ */
+function hydrateSavedAppRules(): AppRuleItem[] {
+  const saved = loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, []);
+  return saved.map((rule) => {
+    const kind = resolveRuleKind(rule);
+    if (kind === 'app' && !rule.processName) {
+      return {
+        ...rule,
+        kind: 'app',
+        processName: normalizeAppTarget(
+          rule.domainOrProcess || rule.targetName
+        ).processName,
+      };
+    }
+    return { ...rule, kind };
+  });
+}
 
 function clampRectToViewport(rect: WindowRect): WindowRect {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
@@ -176,7 +199,6 @@ const StudyBuddyViewport: React.FC = () => {
     useState<boolean>(false);
   const [isDevBarCollapsed, setIsDevBarCollapsed] = useState<boolean>(false);
 
-  // Ref for measuring renderer trigger-received -> overlay-visible timing in dev
   const pendingNudgeTimingRef = useRef<{
     receivedPerfMs: number;
     mainDetectToDispatchMs?: number;
@@ -184,9 +206,7 @@ const StudyBuddyViewport: React.FC = () => {
     targetName: string;
   } | null>(null);
 
-  const [appRules, setAppRules] = useState<AppRuleItem[]>(() =>
-    loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, [])
-  );
+  const [appRules, setAppRules] = useState<AppRuleItem[]>(hydrateSavedAppRules);
 
   useEffect(() => {
     saveStorage(STORAGE_KEYS.APP_RULES, appRules);
@@ -194,7 +214,7 @@ const StudyBuddyViewport: React.FC = () => {
 
   useEffect(() => {
     const handleResetOrDemo = () => {
-      setAppRules(loadStorage<AppRuleItem[]>(STORAGE_KEYS.APP_RULES, []));
+      setAppRules(hydrateSavedAppRules());
     };
     window.addEventListener('study-buddy:data-reset', handleResetOrDemo);
     return () =>
@@ -476,7 +496,6 @@ const StudyBuddyViewport: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Stage P6: Synchronous immediate overlay activation (zero setTimeout delay)
   const activateOverlayImmediately = useCallback(
     (kind: OverlayKind, options?: TriggerOverlayOptions) => {
       triggerOverlay(kind, options);
@@ -484,7 +503,6 @@ const StudyBuddyViewport: React.FC = () => {
     [triggerOverlay]
   );
 
-  // Stage P6 Dev Timing Log: Measure "trigger received" -> "overlay visible" on next paint frame
   useEffect(() => {
     if (
       !IS_DEV_MODE ||
@@ -587,14 +605,24 @@ const StudyBuddyViewport: React.FC = () => {
   const handleAddRule = (
     targetName: string,
     domainOrProcess: string,
-    kind: 'website' | 'app' = 'website'
+    kind: 'website' | 'app' = 'website',
+    processName?: string,
+    bundleId?: string
   ) => {
+    const resolvedProcessName =
+      kind === 'app'
+        ? processName ||
+          normalizeAppTarget(domainOrProcess || targetName).processName
+        : undefined;
+
     setAppRules((prev) => [
       {
         id: `rule-${Date.now()}`,
         kind,
         targetName,
         domainOrProcess,
+        processName: resolvedProcessName,
+        bundleId,
         category: kind === 'app' ? 'Gaming' : 'Social',
         strictBlock: false,
         enabled: true,
@@ -734,7 +762,7 @@ const StudyBuddyViewport: React.FC = () => {
         />
       </div>
 
-      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal (150ms fast fade) */}
+      {/* 4. Conditional Fullscreen Dimmed Backdrop & Center Overlay Modal */}
       {activeOverlay !== null && (
         <div
           style={{
